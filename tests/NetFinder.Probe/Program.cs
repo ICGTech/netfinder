@@ -52,6 +52,16 @@ if (args.Length >= 2 && args[0] == "ipp")
     return;
 }
 // Export: NetFinder.Probe export <dir>  (sample devices → .xlsx / .csv / .html)
+if (args.Length >= 1 && args[0] == "demo")
+{
+    using var e = new NetworkEngine(new Settings());
+    e.Adapters.Add(NetFinder.Core.Demo.DemoNetwork.Adapter());
+    NetFinder.Core.Demo.DemoNetwork.Fill(e);
+    foreach (var d in e.Store.All.OrderBy(d => d.Ip?.ToString()))
+        Console.WriteLine($"{d.Ip,-14} {d.EffectiveType,-22} reach={d.Reachable,-5} self={d.IsSelf,-5} {d.DisplayName,-24} {d.Model,-26} {d.Vendor}  [{d.TypeReason}]");
+    return;
+}
+
 if (args.Length >= 2 && args[0] == "export")
 {
     using var e = new NetworkEngine(new Settings());

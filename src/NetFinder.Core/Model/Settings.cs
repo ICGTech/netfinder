@@ -29,6 +29,9 @@ public sealed class Settings
     [System.Text.Json.Serialization.JsonIgnore]
     public bool DeepScan { get; set; }
 
+    /// <summary>Dark colors for the main window (☰ menu → Dark mode).</summary>
+    public bool DarkMode { get; set; }
+
     /// <summary>Largest local subnet swept fully (16 = up to 65,536 addresses). Bigger ones are swept around this PC's IP.</summary>
     public int SweepPrefixLimit { get; set; } = 16;
 

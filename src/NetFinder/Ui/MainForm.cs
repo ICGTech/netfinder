@@ -17,49 +17,67 @@ public sealed class MainForm : Form
     private readonly Settings _settings = Settings.Load();
     private readonly NetworkEngine _engine;
     private readonly ReachManager _reach;
+    private readonly ChromeRenderer _renderer = new();
 
-    // toolbar row 1: actions
-    private readonly ToolStrip _tools = new() { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8, 4, 8, 4), ImageScalingSize = new Size(20, 20), RenderMode = ToolStripRenderMode.System };
-    private readonly ToolStripButton _btnScan = new("Scan") { Font = Theme.Bold, ToolTipText = "Sweep my subnet (or the Range) + probe other subnets + ask devices for their names" };
-    private readonly ToolStripButton _btnStop = new("Stop") { Enabled = false };
-    private readonly ToolStripButton _btnListen = new("Listening") { CheckOnClick = true, ToolTipText = "Passively catch any device that talks on the wire, on any subnet" };
-    private readonly ToolStripButton _chkRepeat = new("Repeat scan") { CheckOnClick = true, ToolTipText = "Scan again every 2 minutes (catches phones that sleep on Wi-Fi)" };
-    private readonly ToolStripButton _chkDeep = new("Deep scan 192.168.x.x") { CheckOnClick = true, ToolTipText = "Also probe all 65,536 addresses of 192.168.0.0/16 (~45 s, needs Npcap)" };
-    private readonly ToolStripTextBox _txtRange = new() { AutoSize = false, Width = 230, ToolTipText = "Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*" };
-    private readonly ToolStripButton _btnModels = new("Get models") { ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
+    // header: one row
+    private readonly ToolStrip _tools = new() { GripStyle = ToolStripGripStyle.Hidden, CanOverflow = false, ImageScalingSize = new Size(20, 20) };
+    private readonly ToolStripButton _btnScan = new("▶  Scan") { Tag = "primary", Font = Theme.HeaderBold, ToolTipText = "Sweep my subnet (or the Range) + probe other subnets + ask devices for their names" };
+    private readonly ToolStripButton _btnStop = new("Stop") { Enabled = false, Visible = false, Font = Theme.Header };
+    private readonly ToolStripButton _btnListen = new("Listening") { Tag = "pill", CheckOnClick = true, Font = Theme.Bold, ToolTipText = "Passively catch any device that talks on the wire, on any subnet" };
+    private readonly ToolStripMenuItem _chkRepeat = new("Repeat the scan every 2 minutes") { CheckOnClick = true, ToolTipText = "Catches phones that sleep on Wi-Fi" };
+    private readonly ToolStripMenuItem _chkDeep = new("Deep scan 192.168.x.x") { CheckOnClick = true, ToolTipText = "Also probe all 65,536 addresses of 192.168.0.0/16 (~45 s, needs Npcap)" };
+    private readonly ToolStripMenuItem _chkDark = new("Dark mode") { CheckOnClick = true };
+    private readonly ToolStripDropDownButton _menu = new("☰") { ShowDropDownArrow = false, Font = Theme.HeaderBold, ToolTipText = "Repeat scan, deep scan, dark mode, settings…" };
+    private readonly InputBox _rangeBox = new(210);
+    private readonly InputBox _filterBox = new(250) { SearchIcon = true };
+    private TextBox _txtRange => _rangeBox.Box;
+    private TextBox _txtFilter => _filterBox.Box;
+    private readonly ToolStripButton _btnModels = new("Get models") { Font = Theme.Header, ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
     private readonly ToolStripStatusLabel _stExport = new("Export results…") { IsLink = true, Visible = false, LinkBehavior = LinkBehavior.HoverUnderline, Margin = new Padding(8, 3, 8, 2) };
     private Dialogs.WindowsLogin? _winLogin; // memory only, never saved
     private bool _virtualSkipLogged;
     private CancellationTokenSource? _modelsCts;
-    private readonly ToolStripLabel _lblCount = new("0 devices") { Font = new Font("Segoe UI Semibold", 11f), ForeColor = Theme.Accent, Alignment = ToolStripItemAlignment.Right, Margin = new Padding(12, 0, 4, 0) };
-
-    // toolbar row 2: view
-    private readonly ToolStrip _tools2 = new() { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(8, 2, 8, 2), RenderMode = ToolStripRenderMode.System };
-    private readonly ToolStripComboBox _cmbAdapter = new() { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 280 };
-    private readonly ToolStripTextBox _txtFilter = new() { AutoSize = false, Width = 190, ToolTipText = "Filter by IP, name, vendor, type, MAC…" };
-    private readonly ToolStripButton _chkOther = new("Other subnets only") { CheckOnClick = true };
-    private readonly ToolStripButton _btnNpcap = new("Install Npcap") { Font = Theme.Bold, ForeColor = Color.FromArgb(0, 120, 212), ToolTipText = "Npcap lets the program see devices on OTHER IP ranges" };
 
     // banners
-    private readonly Panel _banner = new() { Dock = DockStyle.Top, Height = 48, BackColor = Color.FromArgb(255, 244, 206), Visible = false, Padding = new Padding(12, 6, 12, 6) };
+    private readonly Panel _banner = new() { Dock = DockStyle.Top, Height = 48, Visible = false, Padding = new Padding(12, 6, 12, 6) };
     private readonly Label _bannerText = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly Panel _updateBanner = new() { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(222, 236, 249), Visible = false, Padding = new Padding(12, 6, 12, 6) };
+    private readonly Panel _updateBanner = new() { Dock = DockStyle.Top, Height = 44, Visible = false, Padding = new Padding(12, 6, 12, 6) };
     private readonly Label _updateText = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = Theme.Bold, AutoEllipsis = true };
+    private readonly List<Button> _bannerButtons = new();
+    private readonly List<LinkLabel> _bannerLinks = new();
     private UpdateInfo? _update;
 
-    // list + tabs
-    private readonly SplitContainer _split = new() { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterWidth = 6 };
+    // side menu
+    private readonly Panel _navHost = new() { Dock = DockStyle.Left };
+    private readonly NavList _nav = new() { Dock = DockStyle.Fill };
+    private readonly FlowLayoutPanel _navBottom = new() { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+    private readonly Label _adapterLabel = new() { Text = "ADAPTER", AutoSize = true, Font = Theme.Section };
+    private readonly ComboBox _cmbAdapter = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+    private readonly InfoCard _npcapCard = new();
+
+    // list
+    private readonly SplitContainer _split = new() { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2, SplitterWidth = 1 };
+    private readonly FlowLayoutPanel _titleRow = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = false };
+    private readonly Label _title = new() { Text = "All devices", AutoSize = true, Font = Theme.Heading, Margin = new Padding(0) };
+    private readonly Label _summary = new() { AutoSize = true, Font = Theme.Header };
+    private readonly Panel _gridCard = new() { Dock = DockStyle.Fill, Padding = new Padding(1) };
     private readonly DataGridView _grid = new();
-    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill, Padding = new Point(14, 5) };
-    private readonly TabPage _tabDevice = new("Device");
-    private readonly TabPage _tabDetails = new("All details");
-    private readonly TabPage _tabLog = new("Log");
-    private readonly Panel _devicePanel = new() { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White, Padding = new Padding(16, 12, 16, 12) };
-    private readonly ListView _details = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, BorderStyle = BorderStyle.None };
-    private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BackColor = Color.White, BorderStyle = BorderStyle.None };
+    private DateTime? _lastScan;
+
+    // details pane
+    private readonly DetailsHeader _detailsHead = new() { Dock = DockStyle.Top };
+    private readonly SegmentedTabs _tabs = new("Overview", "All details", "Log") { Dock = DockStyle.Top };
+    private readonly Panel _tabBody = new() { Dock = DockStyle.Fill };
+    private readonly Panel _devicePanel = new() { Dock = DockStyle.Fill, AutoScroll = true };
+    private readonly Panel _detailsPanel = new() { Dock = DockStyle.Fill, AutoScroll = true, Visible = false };
+    private readonly InfoTable _details = new() { Location = new Point(0, 12), KeyWidth = 130 };
+    private readonly Panel _logPanel = new() { Dock = DockStyle.Fill, Visible = false };
+    private readonly FlowLayoutPanel _logBar = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
+    private readonly LinkLabel _logCopy = new() { Text = "Copy", AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
+    private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None };
     // the Log tab shows the lines about the selected device (all of them when nothing is selected or the box is unticked)
-    private readonly CheckBox _logOnlySel = new() { Text = "Only lines about the selected device", Checked = true, AutoSize = true, Margin = new Padding(2, 5, 12, 0) };
-    private readonly Label _logInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(0, 7, 12, 0) };
+    private readonly CheckBox _logOnlySel = new() { Text = "Only lines about the selected device", Checked = true, AutoSize = true, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 5, 12, 0) };
+    private readonly Label _logInfo = new() { AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
     private readonly List<string> _logAll = new();
     private Regex? _logFilter;
     private Device? _logFor;
@@ -67,11 +85,10 @@ public sealed class MainForm : Form
 
     // status
     private readonly StatusStrip _status = new() { SizingGrip = true };
-    private readonly ToolStripStatusLabel _stCount = new("0 devices");
-    private readonly ToolStripStatusLabel _stMode = new("") { Font = Theme.Bold };
+    private readonly ToolStripStatusLabel _stCount = new("0 devices") { Tag = "muted" };
     private readonly ToolStripStatusLabel _stState = new("") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripProgressBar _stProgress = new() { Style = ProgressBarStyle.Marquee, Visible = false, Width = 120 };
-    private readonly ToolStripStatusLabel _stCompany = new("© " + AppInfo.Company) { ForeColor = Theme.Muted };
+    private readonly ToolStripStatusLabel _stCompany = new("© " + AppInfo.Company) { Tag = "muted" };
 
     private readonly System.Windows.Forms.Timer _uiTimer = new() { Interval = 400 };
     private readonly System.Windows.Forms.Timer _repeatTimer = new() { Interval = 120_000 };
@@ -87,9 +104,15 @@ public sealed class MainForm : Form
     private Device? _selected;
     private int _selectedRev = -1;
     private string _panelSig = "";
+    private int _panelWidth;
     private bool _cleared;
     private readonly bool _justUpdated;
     private readonly string? _whatsNew; // short list of changes, shown once after an update
+    // NETFINDER_DEMO=1: made-up devices, nothing is scanned (screenshots). NETFINDER_SCREENSHOT=folder: save pictures and close.
+    private readonly bool _demo = Environment.GetEnvironmentVariable("NETFINDER_DEMO") == "1";
+    private readonly string? _shotDir = Environment.GetEnvironmentVariable("NETFINDER_SCREENSHOT");
+
+    private int S(int px) => LogicalToDeviceUnits(px);
 
     public MainForm(bool justUpdated = false)
     {
@@ -97,33 +120,43 @@ public sealed class MainForm : Form
         var lastVersion = _settings.LastVersion;
         if (justUpdated || (lastVersion != null && UpdateChecker.IsNewer(AppInfo.Version, lastVersion)))
             _whatsNew = Changelog.Text(Changelog.Since(lastVersion));
-        if (lastVersion != AppInfo.Version) { _settings.LastVersion = AppInfo.Version; _settings.Save(); }
+        if (lastVersion != AppInfo.Version && !_demo) { _settings.LastVersion = AppInfo.Version; _settings.Save(); }
+        if (_demo) _whatsNew = null;
+        Theme.SetDark(_settings.DarkMode && _shotDir == null);
         Text = $"{AppInfo.Name} {AppInfo.Version}  –  {AppInfo.Company}";
         Font = Theme.Base;
         Icon = Theme.AppIcon();
-        ClientSize = new Size(1280, 800);
-        MinimumSize = new Size(960, 580);
+        var work = Screen.PrimaryScreen?.WorkingArea.Size ?? new Size(1600, 900);
+        ClientSize = new Size(Math.Min(S(1400), work.Width * 92 / 100), Math.Min(S(860), work.Height * 92 / 100));
+        MinimumSize = new Size(S(1000), S(600));
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.White;
 
         _engine = new NetworkEngine(_settings, typeof(MainForm).Assembly);
         if (!string.IsNullOrWhiteSpace(_settings.UpdateSource)) UpdateChecker.Source = _settings.UpdateSource;
-        _engine.Store.Labels = UserLabels.Load();
+        _engine.Store.Labels = _demo ? new UserLabels() : UserLabels.Load();
         _reach = new ReachManager(_engine);
 
         BuildToolbar();
         BuildBanners();
+        BuildNav();
         BuildGrid();
-        BuildTabs();
+        BuildDetailsPane();
         BuildStatus();
 
-        _split.Panel1.Controls.Add(_grid);
-        _split.Panel2.Controls.Add(_tabs);
         // Dock order: the control added LAST is docked FIRST (top-most).
+        _split.Panel1.Padding = new Padding(S(20), S(14), S(20), S(18));
+        _split.Panel1.Controls.Add(_gridCard);
+        _split.Panel1.Controls.Add(_titleRow);
+        _split.Panel2.Padding = new Padding(S(18), S(16), S(18), S(8));
+        _split.Panel2.Controls.Add(_tabBody);
+        _split.Panel2.Controls.Add(new Panel { Dock = DockStyle.Top, Height = S(10) });
+        _split.Panel2.Controls.Add(_tabs);
+        _split.Panel2.Controls.Add(new Panel { Dock = DockStyle.Top, Height = S(12) });
+        _split.Panel2.Controls.Add(_detailsHead);
         Controls.Add(_split);
+        Controls.Add(_navHost);
         Controls.Add(_banner);
         Controls.Add(_updateBanner);
-        Controls.Add(_tools2);
         Controls.Add(_tools);
         Controls.Add(_status);
 
@@ -135,10 +168,14 @@ public sealed class MainForm : Form
         _repeatTimer.Tick += async (_, _) => { if (_scanCts == null) await ScanAsync(); };
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync(manual: false);
 
+        ApplyTheme();
         Load += (_, _) => Startup();
+        HandleCreated += (_, _) => ApplyNativeTheme();
         Shown += (_, _) =>
         {
-            _split.SplitterDistance = (int)(_split.Height * 0.55);
+            LayoutSplit();
+            ApplyNativeTheme();
+            if (_shotDir != null) { BeginInvoke(new Action(async () => await TakeScreenshotsAsync(_shotDir))); return; }
             if (_whatsNew != null)
                 BeginInvoke(() => MessageBox.Show(this,
                     $"{AppInfo.Name} was updated to version {AppInfo.Version}." + (_whatsNew.Length > 0 ? "\n\nWhat's new:\n" + _whatsNew : ""),
@@ -153,60 +190,89 @@ public sealed class MainForm : Form
         FormClosing += OnClosing;
     }
 
+    /// <summary>The details pane keeps its width; the list takes the rest.</summary>
+    private void LayoutSplit()
+    {
+        try
+        {
+            _split.Panel1MinSize = S(360);
+            _split.Panel2MinSize = S(340);
+            _split.SplitterDistance = Math.Max(S(360), _split.Width - S(430));
+        }
+        catch (InvalidOperationException) { }
+        catch (ArgumentOutOfRangeException) { }
+    }
+
     // ───────────────────────────── layout ─────────────────────────────
 
     private void BuildToolbar()
     {
-        var logo = new ToolStripLabel(AppInfo.Name) { Font = new Font("Segoe UI Semibold", 11f), ForeColor = Theme.Brand, Image = Theme.Logo(), ImageScaling = ToolStripItemImageScaling.SizeToFit, Margin = new Padding(0, 0, 12, 0) };
+        _tools.Renderer = _renderer;
+        _tools.Padding = new Padding(S(14), S(9), S(14), S(9));
         _btnScan.Click += async (_, _) => await ScanAsync();
         _btnStop.Click += (_, _) => _scanCts?.Cancel();
         _btnListen.CheckedChanged += (_, _) => ToggleListen(_btnListen.Checked);
-        _chkRepeat.CheckedChanged += (_, _) => { if (_chkRepeat.Checked) _repeatTimer.Start(); else _repeatTimer.Stop(); };
+        _chkRepeat.CheckedChanged += (_, _) => { if (_chkRepeat.Checked) _repeatTimer.Start(); else _repeatTimer.Stop(); ShowListenText(); };
         _chkDeep.CheckedChanged += (_, _) => _settings.DeepScan = _chkDeep.Checked;
+        _chkDark.Checked = Theme.P.Dark;
+        _chkDark.CheckedChanged += (_, _) =>
+        {
+            Theme.SetDark(_chkDark.Checked);
+            if (!_demo) { _settings.DarkMode = _chkDark.Checked; _settings.Save(); }
+            ApplyTheme();
+        };
         _txtRange.Text = _settings.ScanRanges;
-        _txtRange.TextBox.PlaceholderText = "auto (my subnet)";
+        _txtRange.PlaceholderText = "auto (my subnet)";
         _txtRange.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await ScanAsync(); } };
+        new ToolTip().SetToolTip(_txtRange, "Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*");
+        _txtFilter.TextChanged += (_, _) => ApplyFilter();
+        _txtFilter.PlaceholderText = "Filter: IP, name, model, vendor…";
 
+        foreach (var b in new ToolStripItem[] { _btnScan, _btnStop, _btnModels, _btnListen })
+        {
+            b.Padding = new Padding(S(12), S(6), S(12), S(6));
+            b.Margin = new Padding(S(4), 0, S(4), 0);
+        }
+        _btnListen.Margin = new Padding(S(10), 0, S(4), 0);
         _tools.Items.AddRange(new ToolStripItem[]
         {
-            logo, new ToolStripSeparator(),
-            _btnScan, _btnStop, new ToolStripSeparator(),
-            new ToolStripLabel("Range:"), _txtRange, new ToolStripSeparator(),
-            _btnListen, _chkRepeat, _chkDeep, new ToolStripSeparator(), _btnModels,
+            new BrandItem(),
+            new ToolStripLabel("Range") { Tag = "muted", Font = Theme.Header, Margin = new Padding(S(6), 0, S(6), 0) },
+            new ToolStripControlHost(_rangeBox) { Margin = new Padding(0, 0, S(8), 0) },
+            _btnScan, _btnStop, _btnModels, _btnListen,
         });
         _btnModels.Click += async (_, _) => { if (_modelsCts != null) _modelsCts.Cancel(); else await GetModelsForAllAsync(); };
-        _tools.Items.Add(_lblCount);
 
-        _txtFilter.TextChanged += (_, _) => ApplyFilter();
-        _txtFilter.TextBox.PlaceholderText = "IP, name, vendor, type…";
-        _chkOther.CheckedChanged += (_, _) => ApplyFilter();
-        var btnClear = new ToolStripButton("Clear") { ToolTipText = "Clear the list" };
-        btnClear.Click += (_, _) => { _engine.Store.Clear(); _engine.LearnedSubnets.Clear(); };
-        var btnExport = new ToolStripButton("Export") { ToolTipText = "Save the list as Excel (.xlsx), CSV or an HTML report (print it to PDF)" };
-        btnExport.Click += (_, _) => Export();
-        var btnSettings = new ToolStripButton("Settings");
-        btnSettings.Click += (_, _) => { using var f = new SettingsForm(_settings, _engine.Plugins); f.ShowDialog(this); };
-        var btnAbout = new ToolStripButton("About");
-        btnAbout.Click += async (_, _) => { if (Dialogs.About(this)) await CheckForUpdatesAsync(manual: true); };
+        var clear = new ToolStripMenuItem("Clear the list");
+        clear.Click += (_, _) => { _engine.Store.Clear(); _engine.LearnedSubnets.Clear(); };
+        var settings = new ToolStripMenuItem("Settings…");
+        settings.Click += (_, _) => { using var f = new SettingsForm(_settings, _engine.Plugins); f.ShowDialog(this); };
+        var about = new ToolStripMenuItem("About / check for updates…");
+        about.Click += async (_, _) => { if (Dialogs.About(this)) await CheckForUpdatesAsync(manual: true); };
+        _menu.DropDown.Renderer = _renderer;
+        _menu.DropDownItems.AddRange(new ToolStripItem[] { _chkRepeat, _chkDeep, new ToolStripSeparator(), _chkDark, new ToolStripSeparator(), clear, settings, about });
+        foreach (ToolStripItem i in _menu.DropDownItems) { i.Font = Theme.Header; i.Padding = new Padding(0, S(3), 0, S(3)); }
+        _menu.Padding = new Padding(S(10), S(6), S(10), S(6));
 
-        _tools2.Items.AddRange(new ToolStripItem[]
-        {
-            new ToolStripLabel("Adapter:"), _cmbAdapter, new ToolStripSeparator(),
-            new ToolStripLabel("Filter:"), _txtFilter, _chkOther,
-        });
-        _btnNpcap.Click += async (_, _) => await NpcapButtonAsync();
-        foreach (var b in new ToolStripItem[] { btnAbout, btnSettings, btnExport, btnClear, new ToolStripSeparator(), _btnNpcap })
+        var export = new ToolStripButton("Export") { Font = Theme.Header, Padding = new Padding(S(12), S(6), S(12), S(6)), ToolTipText = "Save the list shown as Excel (.xlsx), CSV or an HTML report (print it to PDF)" };
+        export.Click += (_, _) => Export();
+        foreach (var b in new ToolStripItem[] { _menu, export, new ToolStripControlHost(_filterBox) })
         {
             b.Alignment = ToolStripItemAlignment.Right;
-            _tools2.Items.Add(b);
+            b.Margin = new Padding(S(4), 0, S(4), 0);
+            _tools.Items.Add(b);
         }
+        ShowListenText();
     }
+
+    private void ShowListenText() =>
+        _btnListen.Text = (_btnListen.Checked ? "●  Listening" : "○  Not listening") + (_chkRepeat.Checked ? " · repeat every 2 min" : "");
 
     private void BuildBanners()
     {
-        var install = new Button { Text = "Install Npcap", Dock = DockStyle.Right, Width = 120, BackColor = Theme.Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
+        var install = new Button { Text = "Install Npcap", Dock = DockStyle.Right, Width = 120, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
         install.FlatAppearance.BorderSize = 0;
-        install.Click += async (_, _) => await InstallNpcapAsync(t => install.Text = t, e => install.Enabled = e);
+        install.Click += async (_, _) => { await InstallNpcapAsync(t => install.Text = t, e => install.Enabled = e); ShowCaptureMode(); };
         var hide = new LinkLabel { Text = "Hide", Dock = DockStyle.Right, Width = 50, TextAlign = ContentAlignment.MiddleCenter };
         hide.LinkClicked += (_, _) => _banner.Visible = false;
         _banner.Controls.Add(_bannerText);
@@ -214,7 +280,7 @@ public sealed class MainForm : Form
         _banner.Controls.Add(install);
         _banner.Controls.Add(hide);
 
-        var updNow = new Button { Text = "Update now", Dock = DockStyle.Right, Width = 110, BackColor = Theme.Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
+        var updNow = new Button { Text = "Update now", Dock = DockStyle.Right, Width = 110, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
         updNow.FlatAppearance.BorderSize = 0;
         updNow.Click += async (_, _) => await InstallUpdateAsync(updNow);
         var skip = new LinkLabel { Text = "Later", Dock = DockStyle.Right, Width = 60, TextAlign = ContentAlignment.MiddleCenter };
@@ -223,10 +289,56 @@ public sealed class MainForm : Form
         _updateBanner.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8 });
         _updateBanner.Controls.Add(updNow);
         _updateBanner.Controls.Add(skip);
+        _bannerButtons.AddRange(new[] { install, updNow });
+        _bannerLinks.AddRange(new[] { hide, skip });
+    }
+
+    private void BuildNav()
+    {
+        _navHost.Width = S(228);
+        _navHost.Padding = new Padding(0, 0, 1, 0);
+        _nav.Section("Devices");
+        _nav.Add("all", "All devices");
+        _nav.Add("pc", "Computers");
+        _nav.Add("server", "Servers & VMs");
+        _nav.Add("camera", "Cameras & NVR");
+        _nav.Add("printer", "Printers");
+        _nav.Add("network", "Network");
+        _nav.Add("storage", "Storage (NAS)");
+        _nav.Add("phone", "Phones & TV");
+        _nav.Add("other", "Other");
+        _nav.Section("Networks");
+        _nav.Add("net:mine", "My subnet").Sub = "";
+        _nav.Add("net:routed", "Behind a router").Hidden = true;
+        _nav.Add("net:other", "Other subnets").Sub = "found by listening";
+        _nav.SelectedChanged += key =>
+        {
+            _title.Text = key == "all" ? "All devices" : _nav.TextOf(key);
+            ApplyFilter();
+        };
+
+        var w = _navHost.Width - 1 - S(24);
+        _navBottom.Padding = new Padding(S(12), S(8), S(12), S(14));
+        _adapterLabel.Margin = new Padding(S(10), 0, 0, S(6));
+        _cmbAdapter.Width = w;
+        _cmbAdapter.DropDownWidth = S(380);
+        _cmbAdapter.Margin = new Padding(0, 0, 0, S(12));
+        _npcapCard.Width = w;
+        _npcapCard.Margin = new Padding(0);
+        _npcapCard.Click += async (_, _) => { if (!_demo) await NpcapButtonAsync(); };
+        _navBottom.Controls.AddRange(new Control[] { _adapterLabel, _cmbAdapter, _npcapCard });
+        _navHost.Controls.Add(_nav);
+        _navHost.Controls.Add(_navBottom);
     }
 
     private void BuildGrid()
     {
+        _gridCard.Controls.Add(_grid);
+        _titleRow.Padding = new Padding(0, 0, 0, S(12));
+        _summary.Margin = new Padding(S(10), S(8), 0, 0);
+        _titleRow.Controls.Add(_title);
+        _titleRow.Controls.Add(_summary);
+
         _grid.Dock = DockStyle.Fill;
         _grid.ReadOnly = true;
         _grid.AllowUserToAddRows = false;
@@ -235,45 +347,39 @@ public sealed class MainForm : Form
         _grid.RowHeadersVisible = false;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
-        _grid.BackgroundColor = Color.White;
         _grid.BorderStyle = BorderStyle.None;
         _grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
-        _grid.GridColor = Color.FromArgb(235, 235, 235);
         _grid.EnableHeadersVisualStyles = false;
-        _grid.ColumnHeadersDefaultCellStyle.BackColor = Theme.Panel;
         _grid.ColumnHeadersDefaultCellStyle.Font = Theme.Bold;
-        _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(4, 6, 4, 6);
+        _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(S(6), S(9), S(6), S(9));
         _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-        _grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(204, 228, 247);
-        _grid.DefaultCellStyle.SelectionForeColor = Color.Black;
-        _grid.DefaultCellStyle.Padding = new Padding(4, 0, 4, 0);
-        _grid.RowTemplate.Height = 28;
+        _grid.DefaultCellStyle.Padding = new Padding(S(6), 0, S(6), 0);
+        _grid.RowTemplate.Height = S(38);
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         typeof(DataGridView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(_grid, true);
 
-        void Col(string name, string header, int width, bool fill = false)
+        DataGridViewColumn Col(string name, string header, int width)
         {
-            var c = new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = width, SortMode = DataGridViewColumnSortMode.Automatic };
-            if (fill) { c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; c.MinimumWidth = 120; }
+            var c = new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = S(width), SortMode = DataGridViewColumnSortMode.Automatic, MinimumWidth = S(50) };
             _grid.Columns.Add(c);
+            return c;
         }
-        Col("Type", "Type", 190);
-        Col("Ip", "IP address", 120);
+        Col("Type", "Type", 150);
+        Col("Ip", "IP address", 112).DefaultCellStyle.Font = Theme.Mono;
+        Col("Name", "Name", 150);
+        Col("Model", "Model", 190).DefaultCellStyle.Font = Theme.Bold;
+        Col("Vendor", "Vendor", 130);
         _grid.Columns.Add(new DataGridViewLinkColumn
         {
-            Name = "Open", HeaderText = "Open", Width = 105, SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
-            LinkBehavior = LinkBehavior.HoverUnderline, LinkColor = Theme.Accent, ActiveLinkColor = Theme.Accent, VisitedLinkColor = Theme.Accent,
-            ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
+            Name = "Open", HeaderText = "Open", Width = S(105), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
+            LinkBehavior = LinkBehavior.HoverUnderline, ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
         });
-        Col("Name", "Name", 180, fill: true);
-        Col("Model", "Model", 190);
-        Col("Vendor", "Vendor", 180);
-        Col("Mac", "MAC", 130);
+        Col("Mac", "MAC", 135).DefaultCellStyle.Font = Theme.Mono;
         Col("Net", "Network", 150);
         Col("Ports", "Open ports", 130);
         Col("Via", "Found via", 140);
-        Col("Seen", "Last seen", 75);
+        Col("Seen", "Last seen", 80);
 
         _grid.SortCompare += (_, e) =>
         {
@@ -283,7 +389,13 @@ public sealed class MainForm : Form
                 e.Handled = true;
             }
         };
-        _grid.CellPainting += PaintTypeCell;
+        _grid.CellPainting += PaintCell;
+        _grid.RowPostPaint += (_, e) =>
+        {
+            if (e.RowIndex < 0 || !_grid.Rows[e.RowIndex].Selected) return;
+            using var b = new SolidBrush(Theme.P.Accent);
+            e.Graphics.FillRectangle(b, e.RowBounds.Left, e.RowBounds.Top, S(3), e.RowBounds.Height - 1);
+        };
         _grid.SelectionChanged += (_, _) => SelectDevice(SelectedDevice());
         _grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && _grid.Columns[e.ColumnIndex].Name != "Open") OpenPrimary(SelectedDevice()); };
         _grid.CellContentClick += (_, e) =>
@@ -300,24 +412,53 @@ public sealed class MainForm : Form
     private static long IpKey(object? v) =>
         v is string s && IPAddress.TryParse(s.Split(' ')[0], out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? Ip4.ToUInt(ip) : long.MaxValue;
 
-    private void PaintTypeCell(object? sender, DataGridViewCellPaintingEventArgs e)
+    /// <summary>Header line, the type tile, and the "Firewall blocks it" chip in the Model column.</summary>
+    private void PaintCell(object? sender, DataGridViewCellPaintingEventArgs e)
     {
-        if (e.RowIndex < 0 || e.ColumnIndex != 0 || e.Graphics == null) return;
-        e.PaintBackground(e.CellBounds, (e.State & DataGridViewElementStates.Selected) != 0);
-        var type = e.FormattedValue?.ToString() ?? "";
         var g = e.Graphics;
-        var size = Math.Clamp(e.CellBounds.Height - 8, 14, 40);
-        var r = new Rectangle(e.CellBounds.X + 6, e.CellBounds.Y + (e.CellBounds.Height - size) / 2, size, size);
-        Theme.DrawTypeIcon(g, r, type);
-        var textRect = new Rectangle(r.Right + 7, e.CellBounds.Y, Math.Max(0, e.CellBounds.Right - r.Right - 9), e.CellBounds.Height);
-        TextRenderer.DrawText(g, type, Theme.Base, textRect, type == DeviceTypes.Unknown ? Theme.Muted : Color.Black,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-        e.Handled = true;
+        if (g == null || e.ColumnIndex < 0) return;
+        var P = Theme.P;
+        if (e.RowIndex < 0)
+        {
+            e.Paint(e.CellBounds, DataGridViewPaintParts.All);
+            using var pen = new Pen(P.Border);
+            g.DrawLine(pen, e.CellBounds.Left, e.CellBounds.Bottom - 1, e.CellBounds.Right, e.CellBounds.Bottom - 1);
+            e.Handled = true;
+            return;
+        }
+        var selected = (e.State & DataGridViewElementStates.Selected) != 0;
+        var back = selected ? P.RowSelected : e.CellStyle?.BackColor ?? P.Surface;
+        var name = _grid.Columns[e.ColumnIndex].Name;
+        if (name == "Type")
+        {
+            e.PaintBackground(e.CellBounds, selected);
+            var type = e.FormattedValue?.ToString() ?? "";
+            var size = Math.Clamp(e.CellBounds.Height - S(12), 14, S(28));
+            var r = new Rectangle(e.CellBounds.X + S(10), e.CellBounds.Y + (e.CellBounds.Height - size) / 2, size, size);
+            Theme.DrawTypeTile(g, r, type, back);
+            var textRect = new Rectangle(r.Right + S(10), e.CellBounds.Y, Math.Max(0, e.CellBounds.Right - r.Right - S(14)), e.CellBounds.Height);
+            TextRenderer.DrawText(g, type, Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line);
+            e.Handled = true;
+        }
+        else if (name == "Model" && string.IsNullOrEmpty(e.FormattedValue?.ToString()) && _grid.Rows[e.RowIndex].Tag is Device d)
+        {
+            string? status;
+            lock (d) status = d.Info.GetValueOrDefault("Windows status");
+            if (status == null) return;
+            e.PaintBackground(e.CellBounds, selected);
+            var text = "⚠  " + status;
+            var tw = TextRenderer.MeasureText(g, text, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
+            var chip = new Rectangle(e.CellBounds.X + S(6), e.CellBounds.Y + (e.CellBounds.Height - S(24)) / 2, Math.Min(tw + S(20), e.CellBounds.Width - S(10)), S(24));
+            Ui.FillRound(g, chip, S(12), P.WarnSoft);
+            TextRenderer.DrawText(g, text, Theme.Bold, chip, P.Warn, Ui.Line | TextFormatFlags.HorizontalCenter);
+            e.Handled = true;
+        }
     }
 
     private ContextMenuStrip BuildContextMenu()
     {
-        var m = new ContextMenuStrip();
+        var m = new ContextMenuStrip { Renderer = _renderer };
+        var icons = Theme.P.Surface;
         var open = new ToolStripMenuItem("Open") { Font = Theme.Bold, ToolTipText = "Web page, Remote Desktop, SSH… whatever the device has open" };
         open.Click += (_, _) => OpenPrimary(SelectedDevice());
         m.Items.Add(open);
@@ -326,7 +467,7 @@ public sealed class MainForm : Form
         m.Items.Add("SSH", null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", "SSH", () => Launcher.Ssh(ip.ToString()))); });
         m.Items.Add("Telnet", null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", "Telnet", () => Launcher.Telnet(ip.ToString()))); });
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Show cameras (NVR / DVR)…", Theme.TypeIcon(DeviceTypes.Nvr, 16, SystemColors.Menu), (_, _) => ShowCameras(SelectedDevice()));
+        m.Items.Add("Show cameras (NVR / DVR)…", Theme.TypeIcon(DeviceTypes.Nvr, 16, icons), (_, _) => ShowCameras(SelectedDevice()));
         m.Items.Add("Make reachable (add temporary IP)", null, async (_, _) => { if (SelectedDevice() is { } d) await MakeReachableAsync(d); });
         m.Items.Add("Check open ports", null, async (_, _) => { if (SelectedDevice() is { } d) await CheckPortsAsync(d, force: true); });
         m.Items.Add("Get model", null, async (_, _) => { if (SelectedDevice() is { } d) await GetModelAsync(d); });
@@ -337,39 +478,180 @@ public sealed class MainForm : Form
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add("Rename…", null, (_, _) => Rename(SelectedDevice()));
         var setType = new ToolStripMenuItem("Set type");
+        setType.DropDown.Renderer = _renderer;
         setType.DropDownItems.Add("Automatic (detect)", null, (_, _) => SetType(SelectedDevice(), null));
         setType.DropDownItems.Add(new ToolStripSeparator());
         foreach (var t in DeviceTypes.All.Where(t => t != DeviceTypes.Unknown))
-            setType.DropDownItems.Add(t, Theme.TypeIcon(t, 16, SystemColors.Menu), (_, _) => SetType(SelectedDevice(), t));
+            setType.DropDownItems.Add(t, Theme.TypeIcon(t, 16, icons), (_, _) => SetType(SelectedDevice(), t));
         m.Items.Add(setType);
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add("Remove from list", null, (_, _) => { if (SelectedDevice() is { } d) _engine.Store.Remove(d); });
         return m;
     }
 
-    private void BuildTabs()
+    private void BuildDetailsPane()
     {
-        _tabDevice.Controls.Add(_devicePanel);
-        _details.Columns.Add("Property", 220);
-        _details.Columns.Add("Value", 700);
-        _tabDetails.Controls.Add(_details);
-        var logBar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 32, WrapContents = false, BackColor = Color.White, Padding = new Padding(4, 2, 4, 0) };
-        var copy = new LinkLabel { Text = "Copy", AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
-        copy.LinkClicked += (_, _) => { if (_log.TextLength > 0) Clipboard.SetText(_log.Text); };
+        _tabBody.Controls.Add(_devicePanel);
+        _tabBody.Controls.Add(_detailsPanel);
+        _tabBody.Controls.Add(_logPanel);
+        _detailsPanel.Controls.Add(_details);
+        _detailsPanel.Resize += (_, _) => FitDetails();
+        _devicePanel.Resize += (_, _) =>
+        {
+            // re-render the overview at the new width (wrapping), at the next UI tick
+            if (Math.Abs(_devicePanel.ClientSize.Width - _panelWidth) > S(6)) { _selectedRev = -1; _panelSig = ""; }
+        };
+
+        _logCopy.LinkClicked += (_, _) => { if (_log.TextLength > 0) Clipboard.SetText(_log.Text); };
         _logOnlySel.CheckedChanged += (_, _) => UpdateLogView(force: true);
-        logBar.Controls.AddRange(new Control[] { _logOnlySel, _logInfo, copy });
-        _tabLog.Controls.Add(_log);
-        _tabLog.Controls.Add(logBar);
+        _logBar.Padding = new Padding(0, 0, 0, S(6));
+        _logBar.Controls.AddRange(new Control[] { _logOnlySel, _logInfo, _logCopy });
+        _logPanel.Controls.Add(_log);
+        _logPanel.Controls.Add(_logBar);
         _log.BringToFront();
-        _tabs.TabPages.AddRange(new[] { _tabDevice, _tabDetails, _tabLog });
+
+        _tabs.SelectedIndexChanged += i =>
+        {
+            _devicePanel.Visible = i == 0;
+            _detailsPanel.Visible = i == 1;
+            _logPanel.Visible = i == 2;
+            if (i == 1) FitDetails();
+            if (i == 2) { _log.SelectionStart = _log.TextLength; _log.ScrollToCaret(); }
+        };
         UpdateLogView();
         ShowEmptyDevicePanel();
     }
 
     private void BuildStatus()
     {
+        _status.Renderer = _renderer;
+        _status.Padding = new Padding(S(14), S(3), S(4), S(3));
         _stExport.Click += (_, _) => Export();
-        _status.Items.AddRange(new ToolStripItem[] { _stMode, new ToolStripSeparator(), _stCount, new ToolStripSeparator(), _stState, _stProgress, _stExport, _stCompany });
+        _status.Items.AddRange(new ToolStripItem[] { _stCount, new ToolStripSeparator(), _stState, _stProgress, _stExport, _stCompany });
+    }
+
+    // ───────────────────────────── theme ─────────────────────────────
+
+    /// <summary>Colors every part of the window from Theme.P (light or dark).</summary>
+    private void ApplyTheme()
+    {
+        var p = Theme.P;
+        SuspendLayout();
+        BackColor = p.Bg;
+        ForeColor = p.Text;
+        _tools.BackColor = p.Surface;
+        _status.BackColor = p.Surface;
+        _rangeBox.ApplyTheme();
+        _filterBox.ApplyTheme();
+        _banner.BackColor = p.WarnSoft;
+        _bannerText.ForeColor = p.Text;
+        _updateBanner.BackColor = p.AccentSoft;
+        _updateText.ForeColor = p.AccentSoftText;
+        foreach (var b in _bannerButtons) { b.BackColor = p.Accent; b.ForeColor = p.AccentText; }
+        foreach (var l in _bannerLinks) { l.LinkColor = p.Link; l.ActiveLinkColor = p.Link; }
+
+        _navHost.BackColor = p.Border;
+        _navBottom.BackColor = p.Surface2;
+        _adapterLabel.ForeColor = p.Muted;
+        _cmbAdapter.BackColor = p.InputBg;
+        _cmbAdapter.ForeColor = p.Text;
+
+        _split.BackColor = p.Border;
+        _split.Panel1.BackColor = p.Bg;
+        _split.Panel2.BackColor = p.Surface;
+        _titleRow.BackColor = p.Bg;
+        _title.ForeColor = p.Text;
+        _summary.ForeColor = p.Muted;
+        _gridCard.BackColor = p.Border;
+
+        _grid.BackgroundColor = p.Surface;
+        _grid.GridColor = p.Border;
+        _grid.DefaultCellStyle.BackColor = p.Surface;
+        _grid.DefaultCellStyle.ForeColor = p.Text;
+        _grid.DefaultCellStyle.SelectionBackColor = p.RowSelected;
+        _grid.DefaultCellStyle.SelectionForeColor = p.Text;
+        _grid.ColumnHeadersDefaultCellStyle.BackColor = p.Surface;
+        _grid.ColumnHeadersDefaultCellStyle.ForeColor = p.Muted;
+        _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = p.Surface;
+        _grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = p.Muted;
+        if (_grid.Columns["Open"] is DataGridViewLinkColumn open) { open.LinkColor = p.Link; open.ActiveLinkColor = p.Link; open.VisitedLinkColor = p.Link; }
+        foreach (var name in new[] { "Vendor", "Mac", "Via", "Seen", "Ports" }) _grid.Columns[name].DefaultCellStyle.ForeColor = p.Muted;
+        var oldMenu = _grid.ContextMenuStrip;
+        _grid.ContextMenuStrip = BuildContextMenu();
+        oldMenu?.Dispose();
+        foreach (var row in _rows.Values) if (row.Tag is Device d) FillRow(row, d);
+
+        foreach (var c in new Control[] { _tabBody, _devicePanel, _detailsPanel, _logPanel, _logBar }) c.BackColor = p.Surface;
+        _log.BackColor = p.Surface;
+        _log.ForeColor = p.Text;
+        _logOnlySel.ForeColor = p.Text;
+        _logOnlySel.BackColor = p.Surface;
+        _logInfo.ForeColor = p.Muted;
+        _logCopy.LinkColor = p.Link;
+        _logCopy.ActiveLinkColor = p.Link;
+        _stExport.LinkColor = p.Link;
+        _stExport.ActiveLinkColor = p.Link;
+        ResumeLayout();
+
+        _selectedRev = -1; _panelSig = "";
+        if (_selected == null) ShowEmptyDevicePanel(); else RefreshSelected();
+        ApplyNativeTheme();
+        Invalidate(true);
+    }
+
+    /// <summary>Title bar and scroll bars follow the theme (Windows 10 2004+ / 11).</summary>
+    private void ApplyNativeTheme()
+    {
+        if (!IsHandleCreated) return;
+        var dark = Theme.P.Dark;
+        Native.DarkTitleBar(this, dark);
+        foreach (var c in new Control[] { _grid, _log, _devicePanel, _detailsPanel, _cmbAdapter }) Native.DarkScrollbars(c, dark);
+    }
+
+    // ───────────────────────────── screenshots ─────────────────────────────
+
+    /// <summary>NETFINDER_SCREENSHOT=folder: light.png and dark.png of the demo list at 1440×900, then close.</summary>
+    private async Task TakeScreenshotsAsync(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var border = Size - ClientSize;
+            MaximumSize = new Size(5000, 4000);
+            Native.ForceSize(this, 1440 + border.Width, 900 + border.Height);
+            await Task.Delay(800);
+            LayoutSplit();
+            await Task.Delay(1500);
+            var pc = _rows.Values.FirstOrDefault(r => r.Tag is Device d && d.Ip?.ToString() == "10.0.0.45") ?? _rows.Values.FirstOrDefault();
+            if (pc != null) { _grid.ClearSelection(); pc.Selected = true; _grid.CurrentCell = pc.Cells["Ip"]; }
+            await Task.Delay(1500);
+            Shot(Path.Combine(dir, "light.png"));
+            _tabs.SelectedIndex = 1;
+            await Task.Delay(700);
+            Shot(Path.Combine(dir, "light-all-details.png"));
+            _tabs.SelectedIndex = 0;
+            _chkDark.Checked = true; // switches to dark (not saved in demo mode)
+            await Task.Delay(1500);
+            Shot(Path.Combine(dir, "dark.png"));
+            _nav.Select("pc");
+            _tabs.SelectedIndex = 2;
+            await Task.Delay(1000);
+            Shot(Path.Combine(dir, "dark-computers-log.png"));
+            File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}");
+        }
+        catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
+        Close();
+    }
+
+    private void Shot(string path)
+    {
+        using var full = new Bitmap(Width, Height);
+        DrawToBitmap(full, new Rectangle(Point.Empty, Size));
+        var origin = PointToScreen(Point.Empty);
+        var client = new Rectangle(origin.X - Left, origin.Y - Top, ClientSize.Width, ClientSize.Height);
+        client.Intersect(new Rectangle(Point.Empty, full.Size));
+        using var crop = full.Clone(client, full.PixelFormat);
+        crop.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }
 
     // ───────────────────────────── startup ─────────────────────────────
@@ -377,35 +659,33 @@ public sealed class MainForm : Form
     private void Startup()
     {
         _engine.LoadAdapters();
+        if (_demo) { _engine.Adapters.Clear(); _engine.Adapters.Add(Core.Demo.DemoNetwork.Adapter()); }
         _cmbAdapter.Items.Clear();
         _cmbAdapter.Items.Add("All connected adapters");
         foreach (var a in _engine.Adapters) _cmbAdapter.Items.Add(a);
         _cmbAdapter.SelectedIndex = 0;
+        ShowMySubnets();
         _uiTimer.Start();
-        if (Environment.GetEnvironmentVariable("NETFINDER_DEMO") == "1") DemoData.Fill(_engine);
+        if (_demo)
+        {
+            Core.Demo.DemoNetwork.Fill(_engine);
+            _lastScan = DateTime.Today.AddHours(21).AddMinutes(11);
+            ShowCaptureMode();
+            _btnListen.Checked = true; // shows "Listening"; nothing is captured in demo mode
+            _stState.Text = "Scan finished. Still listening for new devices…";
+            return;
+        }
 
+        ShowCaptureMode();
         var hasNpcap = Core.Net.WindowsNet.NpcapInstalled || _engine.CaptureDriver?.StartsWith("Npcap", StringComparison.OrdinalIgnoreCase) == true;
-        _btnNpcap.Text = hasNpcap ? "Npcap ✓" : "Install Npcap";
-        _btnNpcap.ForeColor = hasNpcap ? Theme.Good : Theme.Accent;
         _engine.Log($"Npcap installed: {hasNpcap}; capture: {(_engine.CaptureAvailable ? _engine.CaptureDriver : "none")}");
         if (!_engine.CaptureAvailable)
         {
             ShowNpcapBanner("Npcap is not installed. Devices on YOUR subnet are found with Windows ARP + ping, but devices on OTHER ranges (e.g. a camera still on 192.168.1.x) need Npcap. It is free; one click installs it.");
             _chkDeep.Enabled = false;
-            _stMode.Text = "Basic mode (no Npcap)";
-            _stMode.ForeColor = Theme.OtherSubnetText;
         }
         else if (!hasNpcap)
-        {
             ShowNpcapBanner($"Old capture driver found ({_engine.CaptureDriver}). It does not work well on Wi-Fi and misses devices. Install Npcap to replace it.");
-            _stMode.Text = $"Limited mode ({_engine.CaptureDriver})";
-            _stMode.ForeColor = Theme.OtherSubnetText;
-        }
-        else
-        {
-            _stMode.Text = $"Full mode ({_engine.CaptureDriver})";
-            _stMode.ForeColor = Theme.Good;
-        }
 
         if (_justUpdated) _engine.Log($"Updated to version {AppInfo.Version}");
         _btnListen.Checked = true; // starts listening (Npcap, or raw socket without it)
@@ -415,6 +695,41 @@ public sealed class MainForm : Form
             _updateTimer.Start();
             BeginInvoke(new Action(async () => { await Task.Delay(5000); await CheckForUpdatesAsync(manual: false); }));
         }
+    }
+
+    /// <summary>The card at the bottom of the side menu: Full mode (Npcap) or Basic mode, click to install Npcap.</summary>
+    private void ShowCaptureMode()
+    {
+        var hasNpcap = Core.Net.WindowsNet.NpcapInstalled || _engine.CaptureDriver?.StartsWith("Npcap", StringComparison.OrdinalIgnoreCase) == true;
+        if (_demo) { _npcapCard.Tone = InfoCard.Kind.Good; _npcapCard.Title = "Full mode · Npcap 1.80"; _npcapCard.Body = "Sees devices on any subnet."; }
+        else if (!_engine.CaptureAvailable)
+        {
+            _npcapCard.Tone = InfoCard.Kind.Warn;
+            _npcapCard.Title = "Basic mode (no Npcap)";
+            _npcapCard.Body = "Finds devices on your own subnet only. Click here to install Npcap (free) and see every subnet.";
+        }
+        else if (!hasNpcap)
+        {
+            _npcapCard.Tone = InfoCard.Kind.Warn;
+            _npcapCard.Title = $"Limited mode ({_engine.CaptureDriver})";
+            _npcapCard.Body = "Old capture driver: it misses devices, mostly on Wi-Fi. Click here to install Npcap.";
+        }
+        else
+        {
+            _npcapCard.Tone = InfoCard.Kind.Good;
+            _npcapCard.Title = $"Full mode · {_engine.CaptureDriver}";
+            _npcapCard.Body = "Sees devices on any subnet.";
+        }
+        new ToolTip().SetToolTip(_npcapCard, "Npcap lets the program see devices on OTHER IP ranges. Click to install or reinstall it.");
+    }
+
+    /// <summary>"10.0.0.0/16 · Ethernet" under "My subnet" in the side menu.</summary>
+    private void ShowMySubnets()
+    {
+        var nets = _engine.Adapters.Where(a => a.IsUp && !a.IsHostOnlyVirtual)
+            .SelectMany(a => a.Addresses.Select(x => $"{x.Subnet} · {a.FriendlyName}")).Distinct().ToList();
+        if (_nav.Find("net:mine") is { } mine) mine.Sub = nets.Count == 0 ? "no IP address" : nets.Count == 1 ? nets[0] : $"{nets[0]} +{nets.Count - 1}";
+        _nav.Invalidate();
     }
 
     /// <summary>Explorer runs an .exe opened inside a .zip from %TEMP%\Temp1_xxx.zip\…, which is thrown away later.</summary>
@@ -439,7 +754,8 @@ public sealed class MainForm : Form
         if (hasNpcap &&
             MessageBox.Show(this, $"Npcap is installed ({_engine.CaptureDriver ?? "driver not loaded"}).\n\nDownload and reinstall the latest Npcap anyway?",
                 AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
-        await InstallNpcapAsync(t => _btnNpcap.Text = t, e => _btnNpcap.Enabled = e);
+        await InstallNpcapAsync(t => _npcapCard.Title = t, e => _npcapCard.Enabled = e);
+        if (!IsDisposed) ShowCaptureMode();
     }
 
     private async Task InstallNpcapAsync(Action<string> setText, Action<bool> setEnabled)
@@ -601,14 +917,19 @@ public sealed class MainForm : Form
     {
         try
         {
-            if (on) _engine.StartListening(_engine.Adapters.Where(a => a.IsUp));
-            else _engine.StopListening();
-            _btnListen.Text = on ? "Listening" : "Listen";
+            if (!_demo)
+            {
+                if (on) _engine.StartListening(_engine.Adapters.Where(a => a.IsUp));
+                else _engine.StopListening();
+            }
+            ShowListenText();
             _stState.Text = on ? "Listening for devices…" : "Not listening";
+            UpdateSummary();
         }
         catch (Exception ex)
         {
             _btnListen.Checked = false;
+            ShowListenText();
             _engine.Log("Listening failed: " + ex.Message);
         }
     }
@@ -625,12 +946,14 @@ public sealed class MainForm : Form
         if (rangeText != _settings.ScanRanges) { _settings.ScanRanges = rangeText; _settings.Save(); }
 
         _scanCts = new CancellationTokenSource();
-        _btnScan.Enabled = false; _btnStop.Enabled = true; _stProgress.Visible = true;
+        _btnScan.Enabled = false; _btnStop.Enabled = true; _btnStop.Visible = true; _stProgress.Visible = true;
+        UpdateSummary();
         var progress = new Progress<string>(s => _stState.Text = s);
         try
         {
             await Task.Run(() => _engine.ScanAsync(SelectedAdapters(), _engine.Plugins.Scanners, progress, _scanCts.Token));
             _stState.Text = $"Scan finished at {DateTime.Now:HH:mm:ss}." + (_engine.Listening ? " Still listening for new devices…" : "");
+            _lastScan = DateTime.Now;
             _stExport.Visible = true;
         }
         catch (OperationCanceledException) { _stState.Text = "Scan stopped."; }
@@ -638,7 +961,8 @@ public sealed class MainForm : Form
         finally
         {
             _scanCts.Dispose(); _scanCts = null;
-            _btnScan.Enabled = true; _btnStop.Enabled = false; _stProgress.Visible = false;
+            _btnScan.Enabled = true; _btnStop.Enabled = false; _btnStop.Visible = false; _stProgress.Visible = false;
+            UpdateSummary();
         }
     }
 
@@ -704,45 +1028,114 @@ public sealed class MainForm : Form
     private void UpdateCounters()
     {
         int total = 0, mine = 0, other = 0, routed = 0;
+        var kinds = new Dictionary<string, int>();
         foreach (var r in _rows.Values)
         {
             if (r.Tag is not Device d || d.IsSelf) continue;
             total++;
             lock (d)
             {
+                var k = Category(d);
+                kinds[k] = kinds.GetValueOrDefault(k) + 1;
                 if (d.Ip == null) continue;
                 if (d.Routed) routed++;
                 else if (d.Reachable) mine++;
                 else other++;
             }
         }
-        _lblCount.Text = $"Found: {total}";
-        _lblCount.ToolTipText = $"{mine} on my subnet, {other} on other subnets, {routed} behind a router";
+        foreach (var i in _nav.Items)
+        {
+            if (i.IsSection) continue;
+            i.Count = i.Key switch
+            {
+                "all" => total, "net:mine" => mine, "net:other" => other, "net:routed" => routed,
+                _ => kinds.GetValueOrDefault(i.Key),
+            };
+        }
+        if (_nav.Find("net:routed") is { } rt) rt.Hidden = routed == 0 && _nav.SelectedKey != "net:routed";
+        if (_nav.Find("net:other") is { } ot) ot.Sub = _engine.CaptureAvailable || _demo ? "found by listening" : "needs Npcap to see them";
+        _nav.Invalidate();
         _stCount.Text = $"{total} devices  ·  {mine} my subnet  ·  {other} other subnets" + (routed > 0 ? $"  ·  {routed} routed" : "");
+        UpdateSummary();
+    }
+
+    /// <summary>"16 found · scan finished 21:11 · still listening for new devices", next to the list title.</summary>
+    private void UpdateSummary()
+    {
+        var shown = _rows.Values.Count(r => r.Visible);
+        var parts = new List<string> { _nav.SelectedKey == "all" && _txtFilter.Text.Trim().Length == 0 ? $"{shown} found" : $"{shown} shown" };
+        if (_scanCts != null) parts.Add("scanning…");
+        else if (_lastScan is { } t) parts.Add($"scan finished {t:HH:mm}");
+        if (_btnListen.Checked) parts.Add("still listening for new devices");
+        _summary.Text = string.Join("  ·  ", parts);
+    }
+
+    /// <summary>The side-menu group of a device (call inside lock).</summary>
+    private static string Category(Device d)
+    {
+        if (d.IsSelf) return "pc";
+        if (d.EffectiveType == DeviceTypes.WindowsPc && Regex.IsMatch(d.Info.GetValueOrDefault("Windows") ?? "", @"\bServer\b", RegexOptions.IgnoreCase)) return "server";
+        return d.EffectiveType switch
+        {
+            DeviceTypes.WindowsPc or DeviceTypes.Mac => "pc",
+            DeviceTypes.Linux or DeviceTypes.Vm => "server",
+            DeviceTypes.Camera or DeviceTypes.Nvr => "camera",
+            DeviceTypes.Printer => "printer",
+            DeviceTypes.Router or DeviceTypes.Switch or DeviceTypes.AccessPoint or DeviceTypes.Firewall => "network",
+            DeviceTypes.Nas => "storage",
+            DeviceTypes.Android or DeviceTypes.IPhone or DeviceTypes.Phone or DeviceTypes.Tv or DeviceTypes.Console => "phone",
+            _ => "other",
+        };
+    }
+
+    /// <summary>Which "Networks" item of the side menu a device is under (call inside lock).</summary>
+    private static string NetKey(Device d) =>
+        d.IsSelf ? "net:mine" : d.Ip == null ? "" : d.Routed ? "net:routed" : d.Reachable ? "net:mine" : "net:other";
+
+    private bool NavMatches(Device d)
+    {
+        var key = _nav.SelectedKey;
+        if (key == "all") return true;
+        lock (d) return key.StartsWith("net:") ? NetKey(d) == key : Category(d) == key;
     }
 
     private void FillRow(DataGridViewRow row, Device d)
     {
+        var P = Theme.P;
         lock (d)
         {
             row.Cells["Type"].Value = d.IsSelf ? Theme.ThisPc : d.EffectiveType;
             row.Cells["Ip"].Value = d.Ip?.ToString() ?? "(unknown)";
             row.Cells["Open"].Value = PrimaryFor(d)?.Label ?? "";
-            row.Cells["Name"].Value = d.DisplayName;
+            row.Cells["Name"].Value = d.DisplayName.Length == 0 || d.DisplayName == d.Model ? "–" : d.DisplayName;
             row.Cells["Model"].Value = d.Model ?? "";
-            row.Cells["Model"].ToolTipText = d.ModelSource != null ? "Model from " + d.ModelSource : "";
-            row.Cells["Vendor"].Value = d.Vendor ?? "";
+            row.Cells["Model"].ToolTipText = d.ModelSource != null ? "Model from " + d.ModelSource : d.Info.GetValueOrDefault("Windows status") ?? "";
+            row.Cells["Vendor"].Value = ShortVendor(d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor);
+            row.Cells["Vendor"].ToolTipText = d.Vendor ?? "";
             row.Cells["Mac"].Value = d.Mac.Length > 0 ? d.Mac : "—";
             row.Cells["Net"].Value = NetText(d);
             row.Cells["Ports"].Value = d.PortsCheckedAt == null ? (d.OpenPorts.Count > 0 ? string.Join(", ", d.OpenPorts) : "") : d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts);
             row.Cells["Via"].Value = string.Join(", ", d.Sources);
             row.Cells["Seen"].Value = d.LastSeen.ToString("HH:mm:ss");
             var otherNet = d.Ip != null && !d.Reachable;
-            row.DefaultCellStyle.BackColor = otherNet ? Theme.OtherSubnet : Color.White;
-            row.Cells["Net"].Style.ForeColor = otherNet ? Theme.OtherSubnetText : Theme.Good;
+            row.DefaultCellStyle.BackColor = otherNet ? P.OtherRow : P.Surface;
+            row.Cells["Net"].Style.ForeColor = otherNet ? P.Warn : P.Good;
             row.Cells["Net"].Style.Font = otherNet ? Theme.Bold : Theme.Base;
         }
         SetVisible(row, MatchesFilter(row));
+    }
+
+    /// <summary>"Hewlett Packard" → "HP", "Dell Inc." → "Dell", "Hangzhou Hikvision Digital Technology Co.,Ltd." → "Hikvision".</summary>
+    internal static string ShortVendor(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v) || v.StartsWith('(')) return v ?? "";
+        if (Regex.IsMatch(v, @"^(hewlett|hp\b)", RegexOptions.IgnoreCase)) return "HP";
+        if (Regex.IsMatch(v, @"hikvision", RegexOptions.IgnoreCase)) return "Hikvision";
+        if (Regex.IsMatch(v, @"dahua", RegexOptions.IgnoreCase)) return "Dahua";
+        if (Regex.IsMatch(v, @"^tp-?link", RegexOptions.IgnoreCase)) return "TP-Link";
+        var s = Regex.Replace(v, @"[,.]?\s*\b(inc|incorporated|corp|corporation|co|ltd|limited|llc|gmbh|ag|s\.?a|technologies|technology|electronics|international)\b\.?", "", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, @"[\s,.]+$", "").Trim();
+        return s.Length >= 2 ? s : v;
     }
 
     private void SetVisible(DataGridViewRow row, bool visible)
@@ -755,15 +1148,17 @@ public sealed class MainForm : Form
     private bool MatchesFilter(DataGridViewRow row)
     {
         if (row.Tag is not Device d) return true;
-        if (_chkOther.Checked && (d.Reachable || d.Ip == null)) return false;
+        if (!NavMatches(d)) return false;
         var f = _txtFilter.Text.Trim();
         if (f.Length == 0) return true;
-        return row.Cells.Cast<DataGridViewCell>().Any(c => c.Value?.ToString()?.Contains(f, StringComparison.OrdinalIgnoreCase) == true);
+        return row.Cells.Cast<DataGridViewCell>().Any(c => c.Value?.ToString()?.Contains(f, StringComparison.OrdinalIgnoreCase) == true) ||
+               (d.Vendor?.Contains(f, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
     private void ApplyFilter()
     {
         foreach (var row in _rows.Values) SetVisible(row, MatchesFilter(row));
+        UpdateSummary();
     }
 
     private void MaybeAutoCheckPorts(Device d)
@@ -814,6 +1209,7 @@ public sealed class MainForm : Form
 
     private void ShowLogInfo()
     {
+        _tabs.SetText(2, _logShown > 0 ? $"Log ({_logShown})" : "Log");
         var d = _logFor;
         if (d == null || _logFilter == null)
         {
@@ -825,11 +1221,10 @@ public sealed class MainForm : Form
         _logInfo.Text = _logShown == 0 ? $"No lines about {who} yet  (untick the box to see the whole log)" : $"{_logShown} line(s) about {who}";
     }
 
-
     private void RefreshSelected()
     {
         var d = _selected;
-        if (d == null) { if (_selectedRev != -2) { ShowEmptyDevicePanel(); _details.Items.Clear(); _selectedRev = -2; } return; }
+        if (d == null) { if (_selectedRev != -2) { ShowEmptyDevicePanel(); _details.Rows.Clear(); FitDetails(); _selectedRev = -2; } return; }
         int rev;
         lock (d) rev = d.Revision;
         if (rev == _selectedRev) return;
@@ -837,27 +1232,42 @@ public sealed class MainForm : Form
         // Only rebuild when something visible changed (devices update on every packet).
         string sig;
         lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, d.Ip, d.BehindNvr, d.Routed, d.Model, d.ModelSource, string.Join(",", d.OpenPorts),
-            string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, d.Services.Count, d.Sources.Count, d.TypeOverride);
+            string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, string.Join(",", d.Info.Values), d.Services.Count, d.Sources.Count, d.TypeOverride);
         if (sig == _panelSig) return;
         _panelSig = sig;
         RenderDevicePanel(d);
         RenderDetails(d);
     }
 
+    private static void ClearPanel(Control panel)
+    {
+        var old = panel.Controls.Cast<Control>().ToList();
+        panel.Controls.Clear();
+        foreach (var c in old) c.Dispose();
+    }
+
     private void ShowEmptyDevicePanel()
     {
-        _devicePanel.Controls.Clear();
+        _detailsHead.Show(null, "No device selected", "Pick a device in the list to see how to open it, its model and its hardware.");
+        _devicePanel.SuspendLayout();
+        ClearPanel(_devicePanel);
         _devicePanel.Controls.Add(new Label
         {
-            Text = "Select a device above to see how to open it.\n\nDevices with an orange background are on a different subnet from this PC.",
-            Dock = DockStyle.Fill, ForeColor = Theme.Muted, TextAlign = ContentAlignment.MiddleCenter,
+            Text = "Select a device in the list.\n\nDevices with an orange background are on a different subnet from this PC.",
+            Dock = DockStyle.Fill, ForeColor = Theme.P.Muted, TextAlign = ContentAlignment.MiddleCenter,
         });
+        _devicePanel.ResumeLayout();
     }
+
+    private Label SectionLabel(string text, int top = 18) =>
+        new() { Text = text.ToUpperInvariant(), Font = Theme.Section, ForeColor = Theme.P.Muted, AutoSize = true, Margin = new Padding(0, S(top), 0, S(6)) };
 
     private void RenderDevicePanel(Device d)
     {
-        string title, sub, type, typeWhy; bool reachable, self; IPAddress? ip; List<DeviceAction> actions;
+        var P = Theme.P;
+        string title, sub, type, typeWhy; bool reachable, self, routed; IPAddress? ip; List<DeviceAction> actions;
         List<(int Port, string Info)> ports; DateTime? checkedAt; string? behindNvr, nvrChannel, nvrCount; bool nvrLike;
+        string? model, modelSrc, serial, windows, winStatus; bool win; var hw = new List<InfoTable.Row>();
         (string Label, DeviceAction Action)? primary;
         lock (d)
         {
@@ -866,207 +1276,178 @@ public sealed class MainForm : Form
             nvrCount = d.Info.GetValueOrDefault("NVR cameras");
             nvrLike = behindNvr == null && !d.IsSelf && d.Ip != null &&
                       (d.EffectiveType is DeviceTypes.Nvr or DeviceTypes.Camera || nvrCount != null || d.OpenPorts.Contains(37777) ||
-                       System.Text.RegularExpressions.Regex.IsMatch(d.Vendor ?? "", "hikvision|dahua|hilook|annke|amcrest|lorex|uniview|tiandy|cp plus", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+                       Regex.IsMatch(d.Vendor ?? "", "hikvision|dahua|hilook|annke|amcrest|lorex|uniview|tiandy|cp plus", RegexOptions.IgnoreCase));
             primary = PrimaryFor(d);
             ip = d.Ip;
             title = d.DisplayName.Length > 0 ? d.DisplayName : ip?.ToString() ?? d.Mac;
-            sub = string.Join("   ·   ", new[] { ip?.ToString(), d.Mac.Length > 0 ? d.Mac : "MAC unknown (behind a router)", d.Vendor }.Where(s => !string.IsNullOrEmpty(s)));
+            sub = string.Join("  ·  ", new[] { d.DisplayName.Length > 0 && d.DisplayName != d.Model ? d.DisplayName : null, d.Mac.Length > 0 ? d.Mac : "MAC unknown (behind a router)", ShortVendor(d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor) }
+                .Where(s => !string.IsNullOrEmpty(s)));
             type = d.EffectiveType;
             typeWhy = d.TypeOverride != null ? "set by you" : d.TypeReason;
-            reachable = d.Reachable; self = d.IsSelf;
+            reachable = d.Reachable; self = d.IsSelf; routed = d.Routed;
             actions = _engine.Plugins.ActionProviders.SelectMany(p => { try { return p.GetActions(d).ToList(); } catch { return new List<DeviceAction>(); } }).ToList();
             ports = d.OpenPorts.Select(p => (p, d.PortInfo.TryGetValue(p, out var s) ? s : "")).ToList();
             checkedAt = d.PortsCheckedAt;
+            model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); windows = d.Info.GetValueOrDefault("Windows");
+            winStatus = d.Info.GetValueOrDefault("Windows status");
+            win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc;
+            hw = HardwareRows(d);
         }
-
-        _devicePanel.SuspendLayout();
-        _devicePanel.Controls.Clear();
-        var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top };
-
-        // header
-        var head = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
         var iconType = self ? Theme.ThisPc : type;
-        var badge = new Label { Text = "  " + iconType + "  ", AutoSize = true, BackColor = Theme.ForType(iconType), ForeColor = Color.White, Font = Theme.Bold, Padding = new Padding(2, 4, 2, 4), Margin = new Padding(0, 8, 10, 0) };
-        head.Controls.Add(new PictureBox { Image = Theme.TypeIcon(iconType, 34), Size = new Size(34, 34), Margin = new Padding(0, 2, 10, 0) });
-        head.Controls.Add(new Label { Text = title, Font = Theme.Title, AutoSize = true, Margin = new Padding(0, 0, 12, 0) });
-        head.Controls.Add(badge);
-        flow.Controls.Add(head);
-        flow.Controls.Add(new Label { Text = sub, AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(2, 0, 0, 2) });
-        if (!string.IsNullOrEmpty(typeWhy))
-            flow.Controls.Add(new Label { Text = "Type detected from: " + typeWhy, AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(2, 0, 0, 8) });
+        _detailsHead.Show(iconType, self ? "This PC" + (ip != null ? "  " + ip : "") : ip?.ToString() ?? title, sub);
 
-        // reachability
-        if (ip == null)
+        _panelWidth = _devicePanel.ClientSize.Width;
+        var W = Math.Max(S(220), _devicePanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - S(4));
+        _devicePanel.SuspendLayout();
+        ClearPanel(_devicePanel);
+        var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0), Padding = new Padding(0, 0, 0, S(16)), Location = new Point(0, 0), BackColor = P.Surface };
+        Label Text(string t, Font f, Color c, int top = 0, int bottom = 0) =>
+            new() { Text = t, Font = f, ForeColor = c, AutoSize = true, MaximumSize = new Size(W, 0), Margin = new Padding(0, S(top), 0, S(bottom)) };
+        FlowLayoutPanel Buttons() => new() { AutoSize = true, WrapContents = true, MaximumSize = new Size(W + S(8), 0), Margin = new Padding(0, S(6), 0, 0), Padding = new Padding(0), BackColor = P.Surface };
+
+        // model
+        if (ip != null || self)
         {
-            flow.Controls.Add(new Label
+            flow.Controls.Add(Text(model != null ? $"Model · from {modelSrc}" : "Model", Theme.Base, P.Muted, 2));
+            flow.Controls.Add(Text(model ?? "Not known yet", model != null ? Theme.Big : Theme.Header, model != null ? P.Text : P.Muted, 2));
+            var extra = string.Join("  ·  ", new[] { serial != null ? "S/N " + serial : null, windows }.Where(x => x != null));
+            if (extra.Length > 0) flow.Controls.Add(Text(extra, Theme.Base, P.Muted, 3));
+            if (winStatus != null)
+                flow.Controls.Add(new Label
+                {
+                    Text = "⚠  " + winStatus + (winStatus.StartsWith("Firewall") ? ": Windows did not let us read it. The fix is in the Log tab." : ""),
+                    AutoSize = true, MaximumSize = new Size(W, 0), BackColor = P.WarnSoft, ForeColor = P.Warn, Font = Theme.Bold,
+                    Padding = new Padding(S(8), S(4), S(8), S(4)), Margin = new Padding(0, S(8), 0, 0),
+                });
+            var mb = Buttons();
+            if (!self)
             {
-                Text = "IP address not known yet: this device was only heard by its MAC address (LLDP / DHCP).\nPress Scan or wait a little; as soon as it has an IP, the buttons to open it appear here.",
-                AutoSize = true, ForeColor = Theme.OtherSubnetText, Font = Theme.Bold, Margin = new Padding(2, 8, 0, 6),
-            });
+                var get = MakeButton("Get model");
+                new ToolTip().SetToolTip(get, "Ask the device (web page, UPnP, SNMP, ONVIF, IPP) – no password needed");
+                get.Click += async (_, _) => await GetModelAsync(d);
+                mb.Controls.Add(get);
+            }
+            if (win)
+            {
+                var wmi = MakeButton(self ? "Read this PC's model" : hw.Count > 0 ? "Read again (Windows login)…" : "Windows login…");
+                new ToolTip().SetToolTip(wmi, "Model, serial number, CPU, RAM, disks, graphics card and Windows version, read from Windows itself (needs an admin login on that PC)");
+                wmi.Click += async (_, _) => await GetWindowsModelAsync(d, askLogin: !self);
+                mb.Controls.Add(wmi);
+            }
+            if (mb.Controls.Count > 0) flow.Controls.Add(mb);
         }
+
+        // reachability + open
+        if (ip == null)
+            flow.Controls.Add(Text("IP address not known yet: this device was only heard by its MAC address (LLDP / DHCP). Press Scan or wait a little; as soon as it has an IP, the buttons to open it appear here.",
+                Theme.Bold, P.Warn, 8, 6));
         if (ip != null && !self)
         {
-            var reach = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 6) };
+            flow.Controls.Add(SectionLabel("Open"));
+            var reach = Buttons();
             if (reachable)
             {
-                bool routed; lock (d) routed = d.Routed;
-                reach.Controls.Add(new Label { Text = routed ? "✔  Reachable through your router – you can open it directly." : "✔  Same subnet as this PC – you can open it directly.", AutoSize = true, ForeColor = Theme.Good, Font = Theme.Bold, Margin = new Padding(0, 6, 12, 0) });
+                flow.Controls.Add(Text(routed ? "✔  Reachable through your router: you can open it directly." : "✔  Same subnet as this PC: you can open it directly.", Theme.Bold, P.Good));
                 if (primary is { } pr)
                 {
-                    var openBtn = MakeButton("Open  " + pr.Label, Theme.Accent, Color.White);
-                    openBtn.Font = Theme.Bold;
+                    var openBtn = MakeButton("Open  " + pr.Label, primary: true);
                     openBtn.Click += async (_, _) => await RunAction(d, pr.Action);
                     reach.Controls.Add(openBtn);
                 }
             }
             else if (behindNvr != null)
             {
-                reach.Controls.Add(new Label
-                {
-                    Text = $"Recorded by NVR {behindNvr}{ChannelSuffix(nvrChannel)}. " +
-                           "Its IP is on the NVR's own camera network,\nso this PC can't open it directly: open it from the NVR's web page.",
-                    AutoSize = true, ForeColor = Theme.OtherSubnetText, Font = Theme.Bold, Margin = new Padding(0, 6, 12, 0),
-                });
-                var nvrBtn = MakeButton("Open NVR web page", Theme.Accent, Color.White);
+                flow.Controls.Add(Text($"Recorded by NVR {behindNvr}{ChannelSuffix(nvrChannel)}. Its IP is on the NVR's own camera network, so this PC can't open it directly: open it from the NVR's web page.", Theme.Bold, P.Warn));
+                var nvrBtn = MakeButton("Open NVR web page", primary: true);
                 nvrBtn.Click += async (_, _) => await OpenNvrAsync(behindNvr);
                 reach.Controls.Add(nvrBtn);
-                var tryBtn = MakeButton("Try a temporary IP", Color.White, Color.Black);
+                var tryBtn = MakeButton("Try a temporary IP");
                 new ToolTip().SetToolTip(tryBtn, "Works only if the camera is on the same cable/switch as this PC (not on the NVR's PoE ports)");
                 tryBtn.Click += async (_, _) => await MakeReachableAsync(d);
                 reach.Controls.Add(tryBtn);
             }
             else
             {
-                reach.Controls.Add(new Label
-                {
-                    Text = $"⚠  On another subnet ({Subnet.Of(ip, _settings.ReachPrefix)}). To open it, this PC needs a temporary IP in that subnet.",
-                    AutoSize = true, ForeColor = Theme.OtherSubnetText, Font = Theme.Bold, Margin = new Padding(0, 6, 12, 0),
-                });
-                var btn = MakeButton("Make reachable", Theme.Accent, Color.White);
+                flow.Controls.Add(Text($"⚠  On another subnet ({Subnet.Of(ip, _settings.ReachPrefix)}). To open it, this PC needs a temporary IP in that subnet.", Theme.Bold, P.Warn));
+                var btn = MakeButton("Make reachable", primary: true);
                 btn.Click += async (_, _) => await MakeReachableAsync(d);
                 reach.Controls.Add(btn);
             }
-            flow.Controls.Add(reach);
-        }
-
-        // actions, grouped
-        foreach (var g in actions.GroupBy(a => a.Group))
-        {
-            flow.Controls.Add(new Label { Text = g.Key, Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
-            var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, MaximumSize = new Size(1400, 0), Margin = new Padding(0) };
-            foreach (var a in g)
+            // the device's own actions (web, remote desktop, files, ping…)
+            foreach (var a in actions)
             {
-                var b = MakeButton(a.Title, Color.White, Color.Black);
-                if (a.Tooltip != null) new ToolTip().SetToolTip(b, a.Tooltip);
+                var b = MakeButton(a.Title);
+                new ToolTip().SetToolTip(b, (a.Group.Length > 0 ? a.Group + ": " : "") + (a.Tooltip ?? a.Title));
                 b.Click += async (_, _) => await RunAction(d, a);
-                row.Controls.Add(b);
+                reach.Controls.Add(b);
             }
-            if (g.Key == "Web")
+            if (actions.Any(a => a.Group == "Web"))
             {
-                var port = new TextBox { Width = 60, PlaceholderText = "port", Margin = new Padding(12, 6, 4, 0) };
-                var go = MakeButton("Open port", Color.White, Color.Black);
+                var port = new TextBox { Width = S(64), PlaceholderText = "port", Margin = new Padding(0, S(9), S(6), 0), BackColor = P.InputBg, ForeColor = P.Text, BorderStyle = BorderStyle.FixedSingle };
+                var go = MakeButton("Open port");
                 go.Click += async (_, _) =>
                 {
                     if (!int.TryParse(port.Text, out var p) || p is < 1 or > 65535 || ip == null) return;
                     var scheme = p is 443 or 8443 or 4443 or 9443 ? "https" : "http";
                     await RunAction(d, new DeviceAction("Web", $"{scheme}://{ip}:{p}", () => Core.Actions.Launcher.Open($"{scheme}://{ip}:{p}/")));
                 };
-                row.Controls.Add(port);
-                row.Controls.Add(go);
+                reach.Controls.Add(port);
+                reach.Controls.Add(go);
             }
-            flow.Controls.Add(row);
+            if (reach.Controls.Count > 0) flow.Controls.Add(reach);
         }
 
         // NVR / DVR: list its cameras
         if (nvrLike)
         {
-            flow.Controls.Add(new Label { Text = "NVR / DVR cameras", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
-            var nvrRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-            var cams = MakeButton(nvrCount != null ? $"Show cameras again ({nvrCount})" : "Show cameras on this NVR…", Color.White, Color.Black);
-            cams.Image = Theme.TypeIcon(DeviceTypes.Camera, 18);
-            cams.ImageAlign = ContentAlignment.MiddleLeft;
-            cams.TextImageRelation = TextImageRelation.ImageBeforeText;
+            flow.Controls.Add(SectionLabel("NVR / DVR cameras"));
+            flow.Controls.Add(Text("Log in with the NVR's user and password to list its cameras: channel, IP, model, online/offline (Hikvision, Dahua and their rebrands).", Theme.Base, P.Muted));
+            var nb = Buttons();
+            var cams = MakeButton(nvrCount != null ? $"Show cameras again ({nvrCount})" : "Show cameras on this NVR…");
             cams.Click += (_, _) => ShowCameras(d);
-            nvrRow.Controls.Add(cams);
-            nvrRow.Controls.Add(new Label
-            {
-                Text = "Log in with the NVR's user and password to list its cameras: channel, IP, model, online/offline (Hikvision, Dahua and their rebrands).",
-                AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(4, 10, 0, 0),
-            });
-            flow.Controls.Add(nvrRow);
+            nb.Controls.Add(cams);
+            flow.Controls.Add(nb);
         }
 
-        // model
-        if (ip != null || self)
+        // hardware read from Windows
+        if (hw.Count > 0)
         {
-            string? model, modelSrc, serial; bool win; List<string> hw;
-            lock (d)
-            {
-                model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc;
-                hw = new[] { ("CPU", ""), ("RAM", " RAM"), ("Disk", ""), ("Drives", ""), ("Drive C:", ""), ("Graphics", ""), ("Windows", "") }
-                    .Where(k => d.Info.ContainsKey(k.Item1))
-                    .SelectMany(k => k.Item1 switch
-                    {
-                        "Drive C:" => new[] { "C: " + d.Info[k.Item1] },
-                        // each drive letter on its own line: "D: 1.8 TB (1.1 TB free)"
-                        "Drives" => SplitDisks(d.Info[k.Item1]).ToArray(),
-                        // each disk on its own line
-                        "Disk" => SplitDisks(d.Info[k.Item1]) is var disks && disks.Count > 1
-                            ? disks.Select((x, i) => $"Disk {i + 1}: {x}").ToArray() : new[] { "Disk: " + d.Info[k.Item1] },
-                        _ => new[] { d.Info[k.Item1] + k.Item2 },
-                    }).ToList();
-            }
-            flow.Controls.Add(new Label { Text = "Model", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
-            var modelRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-            modelRow.Controls.Add(new Label
-            {
-                Text = model != null ? $"{model}{(serial != null ? "   ·   S/N " + serial : "")}   (from {modelSrc})" : "Not known yet.",
-                AutoSize = true, Font = model != null ? Theme.Bold : Theme.Base, ForeColor = model != null ? Color.Black : Theme.Muted, Margin = new Padding(2, 8, 12, 0),
-            });
-            if (!self)
-            {
-                var get = MakeButton("Get model", Color.White, Color.Black);
-                new ToolTip().SetToolTip(get, "Ask the device (web page, UPnP, SNMP, ONVIF, IPP) – no password needed");
-                get.Click += async (_, _) => await GetModelAsync(d);
-                modelRow.Controls.Add(get);
-            }
-            if (win)
-            {
-                var wmi = MakeButton(self ? "Read this PC's model" : "Windows login…", Color.White, Color.Black);
-                new ToolTip().SetToolTip(wmi, "Model, serial number, CPU, RAM, disks, graphics card and Windows version, read from Windows itself (needs an admin login on that PC)");
-                wmi.Click += async (_, _) => await GetWindowsModelAsync(d, askLogin: !self);
-                modelRow.Controls.Add(wmi);
-            }
-            flow.Controls.Add(modelRow);
-            // what Windows told about the PC: CPU, RAM, disks, drive C:, graphics, Windows version
-            if (hw.Count > 0)
-                flow.Controls.Add(new Label
-                {
-                    Text = string.Join("\n", hw), AutoSize = true, ForeColor = Color.FromArgb(60, 60, 60), Margin = new Padding(2, 4, 0, 0),
-                });
+            var table = new InfoTable { Title = "Hardware", Margin = new Padding(0, S(18), 0, 0) };
+            table.Rows.AddRange(hw);
+            table.Fit(W);
+            flow.Controls.Add(table);
         }
 
         // ports
-        flow.Controls.Add(new Label { Text = "Open ports", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 12, 0, 2) });
-        var portLine = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        var portText = checkedAt == null
-            ? (reachable ? "Not checked yet." : "Make the device reachable first, then check its ports.")
-            : ports.Count == 0 ? $"No open ports found (checked {checkedAt:HH:mm:ss})."
-            : string.Join("\n", ports.Select(p => $"{p.Port,-6} {PortName(p.Port)}{(p.Info.Length > 0 ? "   –   " + p.Info : "")}"));
-        portLine.Controls.Add(new Label { Text = portText, AutoSize = true, Font = new Font("Consolas", 9.5f), Margin = new Padding(2, 4, 16, 0) });
+        flow.Controls.Add(SectionLabel("Open ports"));
+        if (checkedAt != null && ports.Count > 0)
+        {
+            var chips = new ChipList { Margin = new Padding(0, 0, 0, S(4)) };
+            foreach (var (port, info) in ports)
+                chips.Chips.Add((port.ToString(), PortName(port), info.Length > 0 ? info : null));
+            chips.Fit(W);
+            flow.Controls.Add(chips);
+        }
+        else
+            flow.Controls.Add(Text(checkedAt == null
+                ? (reachable ? "Not checked yet." : "Make the device reachable first, then check its ports.")
+                : $"No open ports found (checked {checkedAt:HH:mm:ss}).", Theme.Base, P.Muted));
         if (reachable && !self)
         {
-            var chk = MakeButton("Check ports", Color.White, Color.Black);
+            var pb = Buttons();
+            var chk = MakeButton("Check ports");
             chk.Click += async (_, _) => await CheckPortsAsync(d, force: true);
-            portLine.Controls.Add(chk);
+            pb.Controls.Add(chk);
+            flow.Controls.Add(pb);
         }
-        flow.Controls.Add(portLine);
 
-        // label + type
-        var edit = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 14, 0, 0) };
-        var rename = MakeButton("Rename…", Color.White, Color.Black);
+        // type + name
+        flow.Controls.Add(SectionLabel("Type and name"));
+        if (!string.IsNullOrEmpty(typeWhy)) flow.Controls.Add(Text("Detected from: " + typeWhy, Theme.Small, P.Muted, 0, 4));
+        var edit = Buttons();
+        var rename = MakeButton("Rename…");
         rename.Click += (_, _) => Rename(d);
-        var typeBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200, Margin = new Padding(12, 6, 0, 0) };
+        var typeBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = S(200), Margin = new Padding(0, S(8), 0, 0), BackColor = P.InputBg, ForeColor = P.Text };
         typeBox.Items.Add("Type: automatic");
         typeBox.Items.AddRange(DeviceTypes.All.Where(t => t != DeviceTypes.Unknown).Cast<object>().ToArray());
         lock (d) typeBox.SelectedItem = d.TypeOverride ?? (object)"Type: automatic";
@@ -1077,6 +1458,45 @@ public sealed class MainForm : Form
 
         _devicePanel.Controls.Add(flow);
         _devicePanel.ResumeLayout();
+        if (P.Dark) Native.DarkScrollbars(typeBox, true);
+    }
+
+    /// <summary>CPU, RAM, each disk (with an SSD / HDD chip), each drive (with how full it is), graphics: what Windows told (call inside lock).</summary>
+    private static List<InfoTable.Row> HardwareRows(Device d)
+    {
+        var rows = new List<InfoTable.Row>();
+        if (d.Info.GetValueOrDefault("CPU") is { } cpu) rows.Add(new("CPU", cpu));
+        if (d.Info.GetValueOrDefault("RAM") is { } ram) rows.Add(new("RAM", ram));
+        if (d.Info.GetValueOrDefault("Disk") is { } disk)
+        {
+            var disks = SplitDisks(disk);
+            for (var i = 0; i < disks.Count; i++)
+            {
+                var m = Regex.Match(disks[i], @"^(?<name>.+?) \((?<parts>[^()]*)\)$");
+                var name = m.Success ? m.Groups["name"].Value : disks[i];
+                var parts = m.Success ? m.Groups["parts"].Value.Split(", ") : Array.Empty<string>();
+                var chip = parts.Length > 0 ? string.Join(" · ", parts) : null;
+                rows.Add(new(disks.Count > 1 ? $"Disk {i + 1}" : "Disk", name, chip, parts.Any(p => p is "SSD" or "NVMe")));
+            }
+        }
+        var drives = d.Info.GetValueOrDefault("Drives") is { } dv ? SplitDisks(dv) : d.Info.GetValueOrDefault("Drive C:") is { } c ? new List<string> { "C: " + c } : new();
+        foreach (var dr in drives)
+        {
+            var m = Regex.Match(dr, @"^(?<l>[A-Za-z]:)\s+(?<t>[\d.,]+\s*[KMGT]B)\s*\((?<f>[\d.,]+\s*[KMGT]B) free\)");
+            if (m.Success && Bytes(m.Groups["t"].Value) is > 0 and var total && Bytes(m.Groups["f"].Value) is var free)
+                rows.Add(new("Drive " + m.Groups["l"].Value.ToUpperInvariant(), $"{m.Groups["f"].Value} free of {m.Groups["t"].Value}", Bar: 1 - free / total));
+            else rows.Add(new("Drive " + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]));
+        }
+        if (d.Info.GetValueOrDefault("Graphics") is { } gpu) rows.Add(new("Graphics", gpu));
+        return rows;
+    }
+
+    /// <summary>"1.8 TB" → bytes.</summary>
+    private static double Bytes(string s)
+    {
+        var m = Regex.Match(s.Replace(',', '.'), @"([\d.]+)\s*([KMGT])B");
+        if (!m.Success || !double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)) return 0;
+        return v * Math.Pow(1024, "KMGT".IndexOf(m.Groups[2].Value) + 1);
     }
 
     private static string PortName(int p) => p switch
@@ -1090,22 +1510,12 @@ public sealed class MainForm : Form
         _ => "",
     };
 
-    private static Button MakeButton(string text, Color back, Color fore)
-    {
-        var b = new Button
-        {
-            Text = text, AutoSize = true, BackColor = back, ForeColor = fore, FlatStyle = FlatStyle.Flat,
-            Padding = new Padding(8, 3, 8, 3), Margin = new Padding(0, 4, 8, 4), Cursor = Cursors.Hand,
-        };
-        b.FlatAppearance.BorderColor = back == Color.White ? Color.FromArgb(200, 200, 200) : back;
-        return b;
-    }
+    private RoundButton MakeButton(string text, bool primary = false) => new(text, primary);
 
     private void RenderDetails(Device d)
     {
-        _details.BeginUpdate();
-        _details.Items.Clear();
-        void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) _details.Items.Add(new ListViewItem(new[] { k, v })); }
+        _details.Rows.Clear();
+        void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) _details.Rows.Add(new InfoTable.Row(k, v)); }
         lock (d)
         {
             Add("Type", d.EffectiveType + (d.TypeOverride != null ? " (set by you)" : ""));
@@ -1135,7 +1545,15 @@ public sealed class MainForm : Form
                 else Add(kv.Key, kv.Value);
             }
         }
-        _details.EndUpdate();
+        FitDetails();
+    }
+
+    private void FitDetails()
+    {
+        if (!_detailsPanel.Visible && _details.Width > 0) return;
+        _details.Visible = _details.Rows.Count > 0;
+        _details.Location = new Point(0, _detailsPanel.AutoScrollPosition.Y);
+        _details.Fit(Math.Max(S(220), _detailsPanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - S(4)));
     }
 
     // ───────────────────────────── commands ─────────────────────────────
@@ -1288,7 +1706,7 @@ public sealed class MainForm : Form
     {
         using var dlg = new SaveFileDialog
         {
-            Title = "Export the device list",
+            Title = $"Export the {_rows.Values.Count(r => r.Visible)} devices shown",
             Filter = "Excel workbook (*.xlsx)|*.xlsx|CSV – opens in Excel (*.csv)|*.csv|Report for browser / PDF (*.html)|*.html",
             FileName = $"{AppInfo.Name}-{DateTime.Now:yyyyMMdd-HHmm}",
             AddExtension = true,
@@ -1299,7 +1717,8 @@ public sealed class MainForm : Form
         if (ext is not (".xlsx" or ".csv" or ".html" or ".htm")) path += dlg.FilterIndex switch { 2 => ".csv", 3 => ".html", _ => ".xlsx" };
         try
         {
-            var devices = _engine.Store.All.Where(d => !_chkOther.Checked || !d.Reachable).ToList();
+            // what the list shows (side menu + filter)
+            var devices = _rows.Values.Where(r => r.Visible).Select(r => r.Tag).OfType<Device>().ToList();
             Core.Export.Exporter.Save(path, devices, $"Network devices – {Environment.MachineName} – {DateTime.Now:yyyy-MM-dd HH:mm}");
             _stState.Text = $"Exported {devices.Count} devices to {path}";
             if (MessageBox.Show(this, $"Saved {devices.Count} devices to\n{path}\n\nOpen it now?", AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
@@ -1430,7 +1849,7 @@ public sealed class MainForm : Form
         {
             var session = new WindowsLoginSession(self ? null : _winLogin?.User, _winLogin?.Password, DomainHint(), _engine.Log);
             var res = await WindowsReader.ReadAsync(ip?.ToString() ?? ".", self, session, _lifetime.Token);
-            _engine.Store.Touch(d, res.Info.ApplyTo);
+            _engine.Store.Touch(d, x => { res.Info.ApplyTo(x); x.Info.Remove("Windows status"); });
             _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
             if (HardwareLine(res.Info) is { } hwLine) _engine.Log($"Windows {who}: {hwLine}");
             _stState.Text = $"{who}: {res.Info.Model ?? "model not reported"}";
@@ -1440,11 +1859,23 @@ public sealed class MainForm : Form
         {
             var kind = ex is WinReadException w ? w.Kind : WinFail.Other;
             _engine.Log($"Windows {who}: {ex.Message}");
+            if (StatusFor(kind, true, true, ex.Message) is { } st) _engine.Store.Touch(d, x => x.Info["Windows status"] = st);
             _stState.Text = "Could not read the Windows model: " + ex.Message.Split('\n')[0];
             MessageBox.Show(this, $"{who}: {ex.Message}.\n\n{WindowsAdvice(kind, single: true)}", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally { UseWaitCursor = false; }
     }
+
+    /// <summary>The short reason shown in the Model column when Windows could not be read, or null.</summary>
+    private static string? StatusFor(WinFail kind, bool seen, bool evidence, string message) => kind switch
+    {
+        WinFail.Closed when !seen => "Turned off?",
+        WinFail.Closed when !evidence => "135 and 445 closed",
+        WinFail.Closed or WinFail.Blocked => "Firewall blocks it",
+        WinFail.BadLogin => "Wrong password",
+        WinFail.AccessDenied or WinFail.NotAdmin => "Login refused",
+        _ => message.StartsWith("skipped") ? null : "Could not read it",
+    };
 
     private const string WmiFirewallGpo =
         "On the domain controller (Group Policy Management), in a policy linked to the PCs:\n" +
@@ -1453,15 +1884,19 @@ public sealed class MainForm : Form
         "Then run gpupdate /force on the PCs (or restart them) and try again.";
 
     /// <summary>Run once as administrator on a PC whose firewall blocks remote management: turns on Windows' own WMI and file-sharing rules.</summary>
-    internal const string AllowRemoteCommand =
-        "powershell -NoProfile -Command \"Get-NetFirewallRule | ? { $_.Name -like 'WMI-*-In-TCP*' -or $_.Name -like 'FPS-SMB-In-TCP*' } | Enable-NetFirewallRule\"";
+    /// <summary>Plain netsh lines: they work pasted into Command Prompt or PowerShell alike (the group names are the English Windows ones).</summary>
+    internal static readonly string[] AllowRemoteCommands =
+    {
+        "netsh advfirewall firewall set rule group=\"Windows Management Instrumentation (WMI)\" new enable=yes",
+        "netsh advfirewall firewall set rule group=\"File and Printer Sharing\" new enable=yes",
+    };
 
     /// <summary>What to do about a failure, in plain words.</summary>
     private static string WindowsAdvice(WinFail kind, bool single) => kind switch
     {
         WinFail.Closed or WinFail.Blocked =>
             (single ? "Its firewall blocks remote management. " : "Their firewall blocks remote management. ") +
-            $"Open it once on {(single ? "that PC" : "each of them")}: Command Prompt as administrator there, then run (the line is also in the Log tab):\n{AllowRemoteCommand}\n" +
+            $"Open it once on {(single ? "that PC" : "each of them")}: Command Prompt as administrator there, then run these two lines (they are also in the Log tab):\n{string.Join("\n", AllowRemoteCommands)}\n" +
             "If an antivirus has its own firewall, allow it there instead.\n\nFor all PCs at once instead: " + WmiFirewallGpo,
         WinFail.BadLogin => "Check the user name and password. In a domain, write the user as DOMAIN\\user (e.g. ALMADA\\administrator) or user@domain.local.",
         WinFail.AccessDenied or WinFail.NotAdmin => "Use an account that is administrator on that PC: a domain admin (DOMAIN\\user or user@domain.local), " +
@@ -1543,7 +1978,7 @@ public sealed class MainForm : Form
                         try
                         {
                             var res = await WindowsReader.ReadAsync(ip?.ToString() ?? ".", self, self ? selfSession : session!, ct);
-                            _engine.Store.Touch(d, res.Info.ApplyTo);
+                            _engine.Store.Touch(d, x => { res.Info.ApplyTo(x); x.Info.Remove("Windows status"); });
                             Interlocked.Increment(ref windowsOk);
                             _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
                             if (HardwareLine(res.Info) is { } hwLine) _engine.Log($"Windows {who}: {hwLine}");
@@ -1553,6 +1988,8 @@ public sealed class MainForm : Form
                         {
                             var kind = ex is WinReadException w ? w.Kind : WinFail.Other;
                             bool evidence; lock (d) evidence = LooksWindows(d);
+                            // shown in the Model column of the list ("Firewall blocks it")
+                            if (StatusFor(kind, seen, evidence, ex.Message) is { } st) _engine.Store.Touch(d, x => x.Info["Windows status"] = st);
                             if (kind == WinFail.Closed && !seen)
                             {
                                 lock (silent) silent.Add(who);
@@ -1623,7 +2060,10 @@ public sealed class MainForm : Form
         if (silent.Count > 0) lines.Add($"{silent.Count} device(s) did not answer at all: they are only in Windows' ARP table (turned off?). Run Get models again while they are on: {Ips(silent)}");
         foreach (var l in lines) _engine.Log("Windows summary: " + l);
         if (closed.Count + blocked.Count + noSign.Count > 0)
-            _engine.Log("Windows summary: to open a PC's firewall, run this once on it as administrator: " + AllowRemoteCommand);
+        {
+            _engine.Log("Windows summary: to open a PC's firewall, run these two lines once on it, in Command Prompt as administrator:");
+            foreach (var c in AllowRemoteCommands) _engine.Log("Windows summary:   " + c);
+        }
 
         var advice = new List<string>();
         if (stopReason != null || bad.Count > 0) advice.Add(WindowsAdvice(WinFail.BadLogin, false));
