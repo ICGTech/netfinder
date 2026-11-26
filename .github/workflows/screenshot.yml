@@ -2,6 +2,8 @@ name: Screenshots
 # Builds NetFinder and takes pictures of the main window with made-up demo devices (light and dark).
 on:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   shots:
     runs-on: windows-latest
@@ -31,3 +33,17 @@ jobs:
         with:
           name: screenshots
           path: shots/*
+      # the pictures also go to the "screenshots" branch (one commit, replaced each run), to view them without downloading the artifact
+      - name: Save to the screenshots branch
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Set-Location shots
+          git init -q
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git checkout -q -b screenshots
+          git add -A
+          git commit -q -m "Screenshots of $env:GITHUB_REF_NAME $env:GITHUB_SHA"
+          git push -q -f "https://x-access-token:$env:GH_TOKEN@github.com/$env:GITHUB_REPOSITORY.git" screenshots
