@@ -67,7 +67,7 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         (@"msft 5\.0|windows", T.WindowsPc, 45),
         (@"laserjet|officejet|deskjet|pagewide|imagerunner|imageclass|pixma|mfc-|dcp-|hl-l|ecotank|workforce|taskalfa|ecosys|bizhub|aficio|printer|ipp", T.Printer, 85),
         (@"hikvision|dahua|ds-2cd|ipc-|ip camera|network camera|webcam|ezviz|reolink|onvif", T.Camera, 80),
-        (@"\bnvr\b|\bdvr\b|ds-7\d|ds-9\d|xvr", T.Nvr, 85),
+        (@"\bnvr\b|\bdvr\b|\b[nxhd]vr\d|ds-7\d|ds-9\d|xvr", T.Nvr, 85),
         (@"webos|tizen|bravia|android ?tv|google tv|chromecast|roku|fire ?tv|smarttv|smart tv|dlnadoc|mediarenderer|kodi|apple ?tv|appletv", T.Tv, 75),
         (@"switch|catalyst|procurve|aruba \d|nexus|ios-xe|cisco ios|junos ex|comware|powerconnect|cloud ?engine|s5[17]\d\d|sg\d{3}|cbs\d{3}|tl-sg|gs\d{3}|omniswitch", T.Switch, 75),
         (@"access point|unifi ap|uap-|eap\d|instant on ap|airos|wap\d", T.AccessPoint, 75),
@@ -124,6 +124,8 @@ public sealed class BuiltInClassifier : IDeviceClassifier
             else if (Regex.IsMatch(desc, @"\bap\b|access point|wireless", RegexOptions.IgnoreCase)) s.Add(T.AccessPoint, 60, "LLDP/CDP says AP");
             else s.Add(T.Switch, 55, "sends LLDP/CDP");
         }
+        if (d.Info.ContainsKey("NVR cameras")) s.Add(T.Nvr, 150, "lists its cameras");
+        if (d.BehindNvr != null) s.Add(T.Camera, 120, "camera on NVR " + d.BehindNvr);
         if (d.Info.ContainsKey("DHCP server")) s.Add(T.Router, 60, "runs a DHCP server");
         if (d.Info.ContainsKey("Is my gateway")) s.Add(T.Router, 90, "this PC's gateway");
         if (d.Vendor == "(Random / private MAC)") s.Add(T.Phone, 30, "private random MAC (phones do this)");

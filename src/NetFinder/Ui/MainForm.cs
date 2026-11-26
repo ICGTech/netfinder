@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
 using NetFinder.Core;
+using NetFinder.Core.Actions;
 using NetFinder.Core.Model;
 using NetFinder.Core.Net;
 using NetFinder.Core.Plugins;
@@ -238,8 +239,14 @@ public sealed class MainForm : Form
             if (fill) { c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; c.MinimumWidth = 120; }
             _grid.Columns.Add(c);
         }
-        Col("Type", "Type", 170);
+        Col("Type", "Type", 190);
         Col("Ip", "IP address", 120);
+        _grid.Columns.Add(new DataGridViewLinkColumn
+        {
+            Name = "Open", HeaderText = "Open", Width = 105, SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
+            LinkBehavior = LinkBehavior.HoverUnderline, LinkColor = Theme.Accent, ActiveLinkColor = Theme.Accent, VisitedLinkColor = Theme.Accent,
+            ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
+        });
         Col("Name", "Name", 180, fill: true);
         Col("Vendor", "Vendor", 180);
         Col("Mac", "MAC", 130);
@@ -258,7 +265,11 @@ public sealed class MainForm : Form
         };
         _grid.CellPainting += PaintTypeCell;
         _grid.SelectionChanged += (_, _) => SelectDevice(SelectedDevice());
-        _grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) OpenWeb(SelectedDevice()); };
+        _grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0 && _grid.Columns[e.ColumnIndex].Name != "Open") OpenPrimary(SelectedDevice()); };
+        _grid.CellContentClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && _grid.Columns[e.ColumnIndex].Name == "Open" && _grid.Rows[e.RowIndex].Tag is Device d) OpenPrimary(d);
+        };
         _grid.ContextMenuStrip = BuildContextMenu();
         _grid.CellMouseDown += (_, e) =>
         {
@@ -274,12 +285,11 @@ public sealed class MainForm : Form
         if (e.RowIndex < 0 || e.ColumnIndex != 0 || e.Graphics == null) return;
         e.PaintBackground(e.CellBounds, (e.State & DataGridViewElementStates.Selected) != 0);
         var type = e.FormattedValue?.ToString() ?? "";
-        var color = Theme.ForType(type);
         var g = e.Graphics;
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        var r = new Rectangle(e.CellBounds.X + 8, e.CellBounds.Y + (e.CellBounds.Height - 10) / 2, 10, 10);
-        using (var b = new SolidBrush(color)) g.FillEllipse(b, r);
-        var textRect = new Rectangle(r.Right + 6, e.CellBounds.Y, e.CellBounds.Width - 26, e.CellBounds.Height);
+        var size = Math.Clamp(e.CellBounds.Height - 8, 14, 40);
+        var r = new Rectangle(e.CellBounds.X + 6, e.CellBounds.Y + (e.CellBounds.Height - size) / 2, size, size);
+        Theme.DrawTypeIcon(g, r, type);
+        var textRect = new Rectangle(r.Right + 7, e.CellBounds.Y, Math.Max(0, e.CellBounds.Right - r.Right - 9), e.CellBounds.Height);
         TextRenderer.DrawText(g, type, Theme.Base, textRect, type == DeviceTypes.Unknown ? Theme.Muted : Color.Black,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         e.Handled = true;
@@ -288,7 +298,15 @@ public sealed class MainForm : Form
     private ContextMenuStrip BuildContextMenu()
     {
         var m = new ContextMenuStrip();
-        m.Items.Add("Open in browser (http)", null, (_, _) => OpenWeb(SelectedDevice()));
+        var open = new ToolStripMenuItem("Open") { Font = Theme.Bold, ToolTipText = "Web page, Remote Desktop, SSH… whatever the device has open" };
+        open.Click += (_, _) => OpenPrimary(SelectedDevice());
+        m.Items.Add(open);
+        m.Items.Add("Open in browser (http)", null, (_, _) => OpenWeb(SelectedDevice(), "http"));
+        m.Items.Add("Open in browser (https)", null, (_, _) => OpenWeb(SelectedDevice(), "https"));
+        m.Items.Add("SSH", null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", "SSH", () => Launcher.Ssh(ip.ToString()))); });
+        m.Items.Add("Telnet", null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", "Telnet", () => Launcher.Telnet(ip.ToString()))); });
+        m.Items.Add(new ToolStripSeparator());
+        m.Items.Add("Show cameras (NVR / DVR)…", Theme.TypeIcon(DeviceTypes.Nvr, 16, SystemColors.Menu), (_, _) => ShowCameras(SelectedDevice()));
         m.Items.Add("Make reachable (add temporary IP)", null, async (_, _) => { if (SelectedDevice() is { } d) await MakeReachableAsync(d); });
         m.Items.Add("Check open ports", null, async (_, _) => { if (SelectedDevice() is { } d) await CheckPortsAsync(d, force: true); });
         m.Items.Add(new ToolStripSeparator());
@@ -300,7 +318,7 @@ public sealed class MainForm : Form
         setType.DropDownItems.Add("Automatic (detect)", null, (_, _) => SetType(SelectedDevice(), null));
         setType.DropDownItems.Add(new ToolStripSeparator());
         foreach (var t in DeviceTypes.All.Where(t => t != DeviceTypes.Unknown))
-            setType.DropDownItems.Add(t, null, (_, _) => SetType(SelectedDevice(), t));
+            setType.DropDownItems.Add(t, Theme.TypeIcon(t, 16, SystemColors.Menu), (_, _) => SetType(SelectedDevice(), t));
         m.Items.Add(setType);
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add("Remove from list", null, (_, _) => { if (SelectedDevice() is { } d) _engine.Store.Remove(d); });
@@ -656,12 +674,13 @@ public sealed class MainForm : Form
     {
         lock (d)
         {
-            row.Cells["Type"].Value = d.IsSelf ? "This PC" : d.EffectiveType;
+            row.Cells["Type"].Value = d.IsSelf ? Theme.ThisPc : d.EffectiveType;
             row.Cells["Ip"].Value = d.Ip?.ToString() ?? "(unknown)";
+            row.Cells["Open"].Value = PrimaryFor(d)?.Label ?? "";
             row.Cells["Name"].Value = d.DisplayName;
             row.Cells["Vendor"].Value = d.Vendor ?? "";
             row.Cells["Mac"].Value = d.Mac.Length > 0 ? d.Mac : "—";
-            row.Cells["Net"].Value = d.Ip == null ? "—" : d.Routed ? "Behind a router" : d.Reachable ? "My subnet" : $"Other: {Subnet.Of(d.Ip, 24)}";
+            row.Cells["Net"].Value = NetText(d);
             row.Cells["Ports"].Value = d.PortsCheckedAt == null ? (d.OpenPorts.Count > 0 ? string.Join(", ", d.OpenPorts) : "") : d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts);
             row.Cells["Via"].Value = string.Join(", ", d.Sources);
             row.Cells["Seen"].Value = d.LastSeen.ToString("HH:mm:ss");
@@ -734,7 +753,7 @@ public sealed class MainForm : Form
         _selectedRev = rev;
         // Only rebuild when something visible changed (devices update on every packet).
         string sig;
-        lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, string.Join(",", d.OpenPorts),
+        lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, d.Ip, d.BehindNvr, d.Routed, string.Join(",", d.OpenPorts),
             string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, d.Services.Count, d.Sources.Count, d.TypeOverride);
         if (sig == _panelSig) return;
         _panelSig = sig;
@@ -755,9 +774,17 @@ public sealed class MainForm : Form
     private void RenderDevicePanel(Device d)
     {
         string title, sub, type, typeWhy; bool reachable, self; IPAddress? ip; List<DeviceAction> actions;
-        List<(int Port, string Info)> ports; DateTime? checkedAt;
+        List<(int Port, string Info)> ports; DateTime? checkedAt; string? behindNvr, nvrChannel, nvrCount; bool nvrLike;
+        (string Label, DeviceAction Action)? primary;
         lock (d)
         {
+            behindNvr = d.BehindNvr;
+            nvrChannel = d.Info.GetValueOrDefault("NVR channel");
+            nvrCount = d.Info.GetValueOrDefault("NVR cameras");
+            nvrLike = behindNvr == null && !d.IsSelf && d.Ip != null &&
+                      (d.EffectiveType is DeviceTypes.Nvr or DeviceTypes.Camera || nvrCount != null || d.OpenPorts.Contains(37777) ||
+                       System.Text.RegularExpressions.Regex.IsMatch(d.Vendor ?? "", "hikvision|dahua|hilook|annke|amcrest|lorex|uniview|tiandy|cp plus", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+            primary = PrimaryFor(d);
             ip = d.Ip;
             title = d.DisplayName.Length > 0 ? d.DisplayName : ip?.ToString() ?? d.Mac;
             sub = string.Join("   ·   ", new[] { ip?.ToString(), d.Mac.Length > 0 ? d.Mac : "MAC unknown (behind a router)", d.Vendor }.Where(s => !string.IsNullOrEmpty(s)));
@@ -775,7 +802,9 @@ public sealed class MainForm : Form
 
         // header
         var head = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-        var badge = new Label { Text = "  " + type + "  ", AutoSize = true, BackColor = Theme.ForType(type), ForeColor = Color.White, Font = Theme.Bold, Padding = new Padding(2, 4, 2, 4), Margin = new Padding(0, 8, 10, 0) };
+        var iconType = self ? Theme.ThisPc : type;
+        var badge = new Label { Text = "  " + iconType + "  ", AutoSize = true, BackColor = Theme.ForType(iconType), ForeColor = Color.White, Font = Theme.Bold, Padding = new Padding(2, 4, 2, 4), Margin = new Padding(0, 8, 10, 0) };
+        head.Controls.Add(new PictureBox { Image = Theme.TypeIcon(iconType, 34), Size = new Size(34, 34), Margin = new Padding(0, 2, 10, 0) });
         head.Controls.Add(new Label { Text = title, Font = Theme.Title, AutoSize = true, Margin = new Padding(0, 0, 12, 0) });
         head.Controls.Add(badge);
         flow.Controls.Add(head);
@@ -784,6 +813,14 @@ public sealed class MainForm : Form
             flow.Controls.Add(new Label { Text = "Type detected from: " + typeWhy, AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(2, 0, 0, 8) });
 
         // reachability
+        if (ip == null)
+        {
+            flow.Controls.Add(new Label
+            {
+                Text = "IP address not known yet: this device was only heard by its MAC address (LLDP / DHCP).\nPress Scan or wait a little; as soon as it has an IP, the buttons to open it appear here.",
+                AutoSize = true, ForeColor = Theme.OtherSubnetText, Font = Theme.Bold, Margin = new Padding(2, 8, 0, 6),
+            });
+        }
         if (ip != null && !self)
         {
             var reach = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 6) };
@@ -791,6 +828,29 @@ public sealed class MainForm : Form
             {
                 bool routed; lock (d) routed = d.Routed;
                 reach.Controls.Add(new Label { Text = routed ? "✔  Reachable through your router – you can open it directly." : "✔  Same subnet as this PC – you can open it directly.", AutoSize = true, ForeColor = Theme.Good, Font = Theme.Bold, Margin = new Padding(0, 6, 12, 0) });
+                if (primary is { } pr)
+                {
+                    var openBtn = MakeButton("Open  " + pr.Label, Theme.Accent, Color.White);
+                    openBtn.Font = Theme.Bold;
+                    openBtn.Click += async (_, _) => await RunAction(d, pr.Action);
+                    reach.Controls.Add(openBtn);
+                }
+            }
+            else if (behindNvr != null)
+            {
+                reach.Controls.Add(new Label
+                {
+                    Text = $"Recorded by NVR {behindNvr}{ChannelSuffix(nvrChannel)}. " +
+                           "Its IP is on the NVR's own camera network,\nso this PC can't open it directly: open it from the NVR's web page.",
+                    AutoSize = true, ForeColor = Theme.OtherSubnetText, Font = Theme.Bold, Margin = new Padding(0, 6, 12, 0),
+                });
+                var nvrBtn = MakeButton("Open NVR web page", Theme.Accent, Color.White);
+                nvrBtn.Click += async (_, _) => await OpenNvrAsync(behindNvr);
+                reach.Controls.Add(nvrBtn);
+                var tryBtn = MakeButton("Try a temporary IP", Color.White, Color.Black);
+                new ToolTip().SetToolTip(tryBtn, "Works only if the camera is on the same cable/switch as this PC (not on the NVR's PoE ports)");
+                tryBtn.Click += async (_, _) => await MakeReachableAsync(d);
+                reach.Controls.Add(tryBtn);
             }
             else
             {
@@ -832,6 +892,25 @@ public sealed class MainForm : Form
                 row.Controls.Add(go);
             }
             flow.Controls.Add(row);
+        }
+
+        // NVR / DVR: list its cameras
+        if (nvrLike)
+        {
+            flow.Controls.Add(new Label { Text = "NVR / DVR cameras", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
+            var nvrRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+            var cams = MakeButton(nvrCount != null ? $"Show cameras again ({nvrCount})" : "Show cameras on this NVR…", Color.White, Color.Black);
+            cams.Image = Theme.TypeIcon(DeviceTypes.Camera, 18);
+            cams.ImageAlign = ContentAlignment.MiddleLeft;
+            cams.TextImageRelation = TextImageRelation.ImageBeforeText;
+            cams.Click += (_, _) => ShowCameras(d);
+            nvrRow.Controls.Add(cams);
+            nvrRow.Controls.Add(new Label
+            {
+                Text = "Log in with the NVR's user and password to list its cameras: channel, IP, model, online/offline (Hikvision, Dahua and their rebrands).",
+                AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(4, 10, 0, 0),
+            });
+            flow.Controls.Add(nvrRow);
         }
 
         // ports
@@ -904,7 +983,9 @@ public sealed class MainForm : Form
             Add("IP addresses", string.Join(", ", d.Ips));
             Add("MAC", d.Mac);
             Add("Vendor", d.Vendor);
-            Add("Network", d.Ip == null ? null : d.Routed ? "Behind a router (reached by ping/TCP)" : d.Reachable ? "Same subnet as this PC" : "Other subnet: " + Subnet.Of(d.Ip, 24));
+            Add("Network", d.Ip == null ? null : d.Routed ? "Behind a router (reached by ping/TCP)" : d.Reachable ? "Same subnet as this PC" :
+                d.BehindNvr != null ? $"On the camera network of NVR {d.BehindNvr}" : "Other subnet: " + Subnet.Of(d.Ip, 24));
+            Add("Recorded by NVR", d.BehindNvr);
             Add("Found via", string.Join(", ", d.Sources));
             Add("Adapter", _engine.AdapterById(d.AdapterId)?.FriendlyName);
             Add("First seen", d.FirstSeen.ToString("yyyy-MM-dd HH:mm:ss"));
@@ -925,6 +1006,22 @@ public sealed class MainForm : Form
         lock (d) reachable = d.Reachable || d.IsSelf;
         if (!reachable && a.Group is "Web" or "Remote" or "Tools")
         {
+            string? nvr;
+            lock (d) nvr = d.BehindNvr;
+            if (nvr != null)
+            {
+                var c = MessageBox.Show(this,
+                    $"{d.Ip} is recorded by NVR {nvr} and sits on the NVR's own camera network, so this PC can't open it directly.\n\n" +
+                    "Yes  =  open the NVR's web page (you can see and set up the camera from there)\n" +
+                    "No  =  try anyway with a temporary IP in its subnet",
+                    AppInfo.Name, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (c == DialogResult.Cancel) return;
+                if (c == DialogResult.Yes) { await OpenNvrAsync(nvr); return; }
+                if (!await MakeReachableAsync(d)) return;
+                try { a.Execute(); }
+                catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                return;
+            }
             var r = MessageBox.Show(this,
                 $"{d.Ip} is on another subnet, so this PC cannot talk to it yet.\n\nAdd a temporary IP in its subnet first? (It is removed when you close {AppInfo.Name}.)",
                 AppInfo.Name, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
@@ -935,10 +1032,87 @@ public sealed class MainForm : Form
         catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
-    private void OpenWeb(Device? d)
+    private void OpenWeb(Device? d, string scheme)
     {
         if (d?.Ip == null) return;
-        _ = RunAction(d, new DeviceAction("Web", "http", () => Core.Actions.Launcher.Open($"http://{d.Ip}/")));
+        var url = $"{scheme}://{d.Ip}/";
+        _ = RunAction(d, new DeviceAction("Web", scheme, () => Launcher.Open(url)));
+    }
+
+    /// <summary>Best way to open a device (Open column, double-click, context menu).</summary>
+    private static (string Label, DeviceAction Action)? PrimaryFor(Device d)
+    {
+        lock (d)
+        {
+            if (d.Ip == null || d.IsSelf) return null;
+            if (d.BehindNvr != null && !d.Reachable)
+            {
+                var nvr = d.BehindNvr;
+                return ("via NVR", new DeviceAction("NVR", "Open NVR web page", () => Launcher.Open($"http://{nvr}/")));
+            }
+            return BuiltInActions.Primary(d);
+        }
+    }
+
+    private void OpenPrimary(Device? d)
+    {
+        if (d == null) return;
+        if (PrimaryFor(d) is not { } p)
+        {
+            bool hasIp; lock (d) hasIp = d.Ip != null && !d.IsSelf;
+            if (hasIp) { _ = CheckPortsAsync(d, force: true); _stState.Text = $"No open web/remote port known for {d.Ip}; checking its ports…"; }
+            return;
+        }
+        if (p.Action.Group == "NVR") { string? nvr; lock (d) nvr = d.BehindNvr; if (nvr != null) _ = OpenNvrAsync(nvr); return; }
+        _ = RunAction(d, p.Action);
+    }
+
+    /// <summary>Opens the NVR's best page (through RunAction, so an NVR on another subnet is made reachable first).</summary>
+    private async Task OpenNvrAsync(string nvrIp)
+    {
+        if (IPAddress.TryParse(nvrIp, out var a) && _engine.Store.FindByIp(a) is { } nvr)
+        {
+            var p = PrimaryFor(nvr);
+            await RunAction(nvr, p?.Action.Group == "Web" ? p.Value.Action : new DeviceAction("Web", "http", () => Launcher.Open($"http://{nvrIp}/")));
+        }
+        else
+        {
+            try { Launcher.Open($"http://{nvrIp}/"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name); }
+        }
+    }
+
+    private static string ChannelSuffix(string? nvrChannel)
+    {
+        var m = nvrChannel == null ? null : System.Text.RegularExpressions.Regex.Match(nvrChannel, @"channel (\d+)");
+        return m is { Success: true } ? $" (channel {m.Groups[1].Value})" : "";
+    }
+
+    private static string NetText(Device d)
+    {
+        if (d.Ip == null) return "—";
+        if (d.Routed) return "Behind a router";
+        if (d.Reachable) return "My subnet";
+        if (d.BehindNvr != null) return $"Behind NVR {d.BehindNvr}";
+        return $"Other: {Subnet.Of(d.Ip, 24)}";
+    }
+
+    /// <summary>"Show cameras": goes through RunAction so an NVR on another subnet is made reachable first.</summary>
+    private void ShowCameras(Device? d)
+    {
+        if (d?.Ip == null) return;
+        _ = RunAction(d, new DeviceAction("Tools", "Show cameras", () => ShowCamerasDialog(d)));
+    }
+
+    private void ShowCamerasDialog(Device d)
+    {
+        using var f = new NvrForm(_engine, d, dev => OpenPrimary(dev), url =>
+        {
+            if (IPAddress.TryParse(new Uri(url.Contains("://") ? url : "http://" + url).Host, out var ip) && _engine.Store.FindByIp(ip) is { } nvr)
+                _ = RunAction(nvr, new DeviceAction("Web", url, () => Launcher.Open(url)));
+            else
+                try { Launcher.Open(url); } catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name); }
+        });
+        f.ShowDialog(this);
     }
 
     private async Task<bool> MakeReachableAsync(Device d)
@@ -982,12 +1156,12 @@ public sealed class MainForm : Form
         using var dlg = new SaveFileDialog { Filter = "CSV file|*.csv", FileName = $"{AppInfo.Name}-{DateTime.Now:yyyyMMdd-HHmm}.csv" };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         var sb = new StringBuilder();
-        sb.AppendLine("Type,IP,All IPs,Name,Hostname,Model,Vendor,MAC,Network,Open ports,Found via,First seen,Last seen");
+        sb.AppendLine("Type,IP,All IPs,Name,Hostname,Model,Vendor,MAC,Network,Open ports,Found via,NVR,First seen,Last seen");
         static string Q(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
         foreach (var d in _engine.Store.All.OrderBy(x => x.Ip == null ? long.MaxValue : (long)Ip4.ToUInt(x.Ip)))
             lock (d)
                 sb.AppendLine(string.Join(",", Q(d.EffectiveType), Q(d.Ip?.ToString()), Q(string.Join(" ", d.Ips)), Q(d.CustomName), Q(d.Hostname), Q(d.Model),
-                    Q(d.Vendor), Q(d.Mac), Q(d.Reachable ? "My subnet" : "Other subnet"), Q(string.Join(" ", d.OpenPorts)), Q(string.Join(" ", d.Sources)),
+                    Q(d.Vendor), Q(d.Mac), Q(NetText(d)), Q(string.Join(" ", d.OpenPorts)), Q(string.Join(" ", d.Sources)), Q(d.Info.GetValueOrDefault("NVR channel")),
                     Q(d.FirstSeen.ToString("s")), Q(d.LastSeen.ToString("s"))));
         File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
         _stState.Text = "Exported to " + dlg.FileName;

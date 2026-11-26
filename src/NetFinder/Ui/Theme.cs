@@ -43,7 +43,89 @@ internal static class Theme
         [DeviceTypes.AccessControl] = Color.FromArgb(150, 60, 100),
     };
 
-    public static Color ForType(string type) => TypeColors.TryGetValue(type, out var c) ? c : Color.FromArgb(150, 150, 150);
+    public static Color ForType(string type) => type == ThisPc ? Brand : TypeColors.TryGetValue(type, out var c) ? c : Color.FromArgb(150, 150, 150);
+
+    public const string ThisPc = "This PC";
+
+    // Symbol drawn (in white) inside the colored square of each type. Segoe UI Emoji / Symbol ship with Windows 10/11
+    // and GDI draws them as one-color outlines, so they take the text color.
+    private static readonly Dictionary<string, string> TypeGlyphs = new()
+    {
+        [DeviceTypes.Router] = "\U0001F310",       // globe
+        [DeviceTypes.Switch] = "\U0001F500",       // crossed arrows
+        [DeviceTypes.AccessPoint] = "\U0001F4F6",  // signal bars
+        [DeviceTypes.Firewall] = "\U0001F6E1",     // shield
+        [DeviceTypes.Printer] = "\U0001F5A8",      // printer
+        [DeviceTypes.Camera] = "\U0001F4F7",       // camera
+        [DeviceTypes.Nvr] = "\U0001F4FC",          // video cassette
+        [DeviceTypes.Tv] = "\U0001F4FA",           // television
+        [DeviceTypes.Android] = "\U0001F4F1",      // mobile phone
+        [DeviceTypes.IPhone] = "\U0001F4F1",
+        [DeviceTypes.Phone] = "\U0001F4F1",
+        [DeviceTypes.Mac] = "\U0001F4BB",          // laptop
+        [DeviceTypes.WindowsPc] = "\U0001F5A5",    // desktop computer
+        [DeviceTypes.Linux] = "\U0001F427",        // penguin
+        [DeviceTypes.Nas] = "\U0001F5C4",          // file cabinet
+        [DeviceTypes.Iot] = "\U0001F4A1",          // light bulb
+        [DeviceTypes.VoipPhone] = "\u260E",        // telephone
+        [DeviceTypes.Console] = "\U0001F3AE",      // game controller
+        [DeviceTypes.Vm] = "\U0001F4E6",           // package
+        [DeviceTypes.Ups] = "\U0001F50B",          // battery
+        [DeviceTypes.AccessControl] = "\U0001F510",// lock with key
+        [ThisPc] = "\U0001F3E0",                   // house
+    };
+
+    private static readonly Dictionary<(int, bool), Font> GlyphFonts = new();
+
+    /// <summary>Font sized in pixels for an icon of that height (so it fits at any Windows scaling).</summary>
+    private static Font GlyphFontFor(int height, bool emoji)
+    {
+        lock (GlyphFonts)
+        {
+            if (!GlyphFonts.TryGetValue((height, emoji), out var f))
+                GlyphFonts[(height, emoji)] = f = emoji
+                    ? new Font("Segoe UI Emoji", Math.Max(6f, height * 0.58f), GraphicsUnit.Pixel)
+                    : new Font("Segoe UI Semibold", Math.Max(6f, height * 0.7f), GraphicsUnit.Pixel);
+            return f;
+        }
+    }
+
+    /// <summary>Draws the type icon: a rounded square in the type color with a white symbol.</summary>
+    public static void DrawTypeIcon(Graphics g, Rectangle r, string type)
+    {
+        var smooth = g.SmoothingMode;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var path = RoundedRect(r, Math.Max(3, r.Width / 5)))
+        using (var b = new SolidBrush(ForType(type)))
+            g.FillPath(b, path);
+        g.SmoothingMode = smooth;
+        var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
+        var hasGlyph = TypeGlyphs.TryGetValue(type, out var glyph);
+        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor(r.Height, hasGlyph), r, Color.White, flags);
+    }
+
+    /// <summary>The type icon as a picture (device tab header, menus), on an opaque background.</summary>
+    public static Bitmap TypeIcon(string type, int size, Color? background = null)
+    {
+        // 32bppRgb (no alpha): GDI text on an alpha bitmap punches transparent holes.
+        var bmp = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+        using var g = Graphics.FromImage(bmp);
+        g.Clear(background ?? Color.White);
+        DrawTypeIcon(g, new Rectangle(0, 0, size, size), type);
+        return bmp;
+    }
+
+    private static System.Drawing.Drawing2D.GraphicsPath RoundedRect(Rectangle r, int radius)
+    {
+        var d = radius * 2;
+        var p = new System.Drawing.Drawing2D.GraphicsPath();
+        p.AddArc(r.X, r.Y, d, d, 180, 90);
+        p.AddArc(r.Right - d - 1, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d - 1, r.Bottom - d - 1, d, d, 0, 90);
+        p.AddArc(r.X, r.Bottom - d - 1, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
 
     public static Image? Logo()
     {

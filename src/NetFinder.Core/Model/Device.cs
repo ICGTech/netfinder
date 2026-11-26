@@ -26,6 +26,12 @@ public sealed class Device
     /// <summary>Found through a router (answered ping/TCP but is not on this PC's LAN).</summary>
     public bool Routed { get; set; }
 
+    /// <summary>
+    /// IP of the NVR/DVR this camera is recorded by (filled by "Show cameras"). When the camera is not
+    /// reachable itself it usually sits on the NVR's own camera network (PoE ports) and is opened through the NVR.
+    /// </summary>
+    public string? BehindNvr { get; set; }
+
     /// <summary>Key used to remember the user's name/type for this device.</summary>
     public string LabelKey => Mac.Length > 0 ? Mac : "IP " + Ip;
     public string? Vendor { get; set; }
