@@ -30,6 +30,7 @@ public sealed class MainForm : Form
     private readonly ToolStripComboBox _cmbAdapter = new() { DropDownStyle = ComboBoxStyle.DropDownList, AutoSize = false, Width = 280 };
     private readonly ToolStripTextBox _txtFilter = new() { AutoSize = false, Width = 190, ToolTipText = "Filter by IP, name, vendor, type, MAC…" };
     private readonly ToolStripButton _chkOther = new("Other subnets only") { CheckOnClick = true };
+    private readonly ToolStripButton _btnNpcap = new("Install Npcap") { Font = Theme.Bold, ForeColor = Color.FromArgb(0, 120, 212), ToolTipText = "Npcap lets the program see devices on OTHER IP ranges" };
 
     // banners
     private readonly Panel _banner = new() { Dock = DockStyle.Top, Height = 48, BackColor = Color.FromArgb(255, 244, 206), Visible = false, Padding = new Padding(12, 6, 12, 6) };
@@ -157,7 +158,8 @@ public sealed class MainForm : Form
             new ToolStripLabel("Adapter:"), _cmbAdapter, new ToolStripSeparator(),
             new ToolStripLabel("Filter:"), _txtFilter, _chkOther,
         });
-        foreach (var b in new ToolStripItem[] { btnAbout, btnSettings, btnExport, btnClear })
+        _btnNpcap.Click += async (_, _) => await NpcapButtonAsync();
+        foreach (var b in new ToolStripItem[] { btnAbout, btnSettings, btnExport, btnClear, new ToolStripSeparator(), _btnNpcap })
         {
             b.Alignment = ToolStripItemAlignment.Right;
             _tools2.Items.Add(b);
@@ -168,7 +170,7 @@ public sealed class MainForm : Form
     {
         var install = new Button { Text = "Install Npcap", Dock = DockStyle.Right, Width = 120, BackColor = Theme.Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
         install.FlatAppearance.BorderSize = 0;
-        install.Click += async (_, _) => await InstallNpcapAsync(install);
+        install.Click += async (_, _) => await InstallNpcapAsync(t => install.Text = t, e => install.Enabled = e);
         var hide = new LinkLabel { Text = "Hide", Dock = DockStyle.Right, Width = 50, TextAlign = ContentAlignment.MiddleCenter };
         hide.LinkClicked += (_, _) => _banner.Visible = false;
         _banner.Controls.Add(_bannerText);
@@ -320,6 +322,10 @@ public sealed class MainForm : Form
         _uiTimer.Start();
         if (Environment.GetEnvironmentVariable("NETFINDER_DEMO") == "1") DemoData.Fill(_engine);
 
+        var hasNpcap = Core.Net.WindowsNet.NpcapInstalled || _engine.CaptureDriver?.StartsWith("Npcap", StringComparison.OrdinalIgnoreCase) == true;
+        _btnNpcap.Text = hasNpcap ? "Npcap ✓" : "Install Npcap";
+        _btnNpcap.ForeColor = hasNpcap ? Theme.Good : Theme.Accent;
+        _engine.Log($"Npcap installed: {hasNpcap}; capture: {(_engine.CaptureAvailable ? _engine.CaptureDriver : "none")}");
         if (!_engine.CaptureAvailable)
         {
             ShowNpcapBanner("Npcap is not installed. Devices on YOUR subnet are found with Windows ARP + ping, but devices on OTHER ranges (e.g. a camera still on 192.168.1.x) need Npcap. It is free; one click installs it.");
@@ -327,7 +333,7 @@ public sealed class MainForm : Form
             _stMode.Text = "Basic mode (no Npcap)";
             _stMode.ForeColor = Theme.OtherSubnetText;
         }
-        else if (_engine.OldWinPcap)
+        else if (!hasNpcap)
         {
             ShowNpcapBanner($"Old capture driver found ({_engine.CaptureDriver}). It does not work well on Wi-Fi and misses devices. Install Npcap to replace it.");
             _stMode.Text = $"Limited mode ({_engine.CaptureDriver})";
@@ -354,15 +360,22 @@ public sealed class MainForm : Form
         _banner.Visible = true;
     }
 
-    private async Task InstallNpcapAsync(Button btn)
+    private async Task NpcapButtonAsync()
     {
-        btn.Enabled = false;
-        var old = btn.Text;
+        var hasNpcap = Core.Net.WindowsNet.NpcapInstalled || _engine.CaptureDriver?.StartsWith("Npcap", StringComparison.OrdinalIgnoreCase) == true;
+        if (hasNpcap &&
+            MessageBox.Show(this, $"Npcap is installed ({_engine.CaptureDriver ?? "driver not loaded"}).\n\nDownload and reinstall the latest Npcap anyway?",
+                AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
+        await InstallNpcapAsync(t => _btnNpcap.Text = t, e => _btnNpcap.Enabled = e);
+    }
+
+    private async Task InstallNpcapAsync(Action<string> setText, Action<bool> setEnabled)
+    {
+        setEnabled(false);
+        setText("Downloading…");
         try
         {
-            btn.Text = "Downloading…";
-            var progress = new Progress<int>(p => btn.Text = $"Downloading {p}%");
-            btn.Text = "Installing…";
+            var progress = new Progress<int>(p => setText(p >= 100 ? "Installing…" : $"Downloading {p}%"));
             await NpcapInstaller.DownloadAndRunAsync(progress, _lifetime.Token);
             if (Core.Net.WindowsNet.NpcapInstalled)
             {
@@ -377,8 +390,8 @@ public sealed class MainForm : Form
             MessageBox.Show(this, "Could not download Npcap automatically. The download page will open in your browser.\n\n" + ex.Message, AppInfo.Name);
             Core.Actions.Launcher.Open(NpcapInstaller.DownloadPage);
         }
-        btn.Text = old;
-        btn.Enabled = true;
+        setText(Core.Net.WindowsNet.NpcapInstalled ? "Npcap ✓" : "Install Npcap");
+        setEnabled(true);
     }
 
     // ───────────────────────────── updates ─────────────────────────────
