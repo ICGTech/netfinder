@@ -66,6 +66,17 @@ if (args.Length >= 2 && args[0] == "export")
     Console.WriteLine("EXPORTED");
     return;
 }
+// Changelog: NetFinder.Probe changelog
+if (args.Length >= 1 && args[0] == "changelog")
+{
+    var all = NetFinder.Core.Update.Changelog.All;
+    Console.WriteLine($"versions: {string.Join(", ", all.Select(e => e.Version))}");
+    Console.WriteLine("--- one version:\n" + NetFinder.Core.Update.Changelog.Text(all.Take(1)));
+    Console.WriteLine("--- two versions:\n" + NetFinder.Core.Update.Changelog.Text(all.Take(2)));
+    Console.WriteLine("--- banner: " + NetFinder.Core.Update.Changelog.OneLine(string.Join("\n", all[0].Items.Select(i => "- " + i))));
+    Console.WriteLine("--- banner (generated notes): [" + NetFinder.Core.Update.Changelog.OneLine("## What's Changed\n* 1.1.6 by @x in #1\n\n**Full Changelog**: https://x") + "]");
+    return;
+}
 // ONVIF multicast scan from one local address: NetFinder.Probe onvif <localIp>
 if (args.Length >= 2 && args[0] == "onvif")
 {

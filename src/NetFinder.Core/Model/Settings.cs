@@ -48,6 +48,8 @@ public sealed class Settings
     /// </summary>
     public string UpdateSource { get; set; } = "";
     public string? SkippedVersion { get; set; }
+    /// <summary>Version that ran last time; used to show "what's new" once after an update.</summary>
+    public string? LastVersion { get; set; }
 
     public List<int> Ports { get; set; } = new()
     {

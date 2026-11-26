@@ -1,5 +1,6 @@
 # Publishing a new version:
-#   1. git tag v1.2.0 && git push origin v1.2.0
+#   0. Add a short "## 1.2.0" section to CHANGELOG.md (shown to users after they update)
+#   1. git tag v1.2.0 && git push origin v1.2.0   (or Actions → Release → Run workflow)
 #   2. This workflow builds NetFinder.exe with that version and creates the GitHub release.
 #   3. Every running copy of the program sees the new release and offers "Update now".
 name: Release
@@ -38,5 +39,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${{ steps.v.outputs.version }}"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "NetFinder $TAG" --generate-notes
+          # Release notes = this version's short list in CHANGELOG.md (the app shows them in the update bar)
+          awk -v v="${{ steps.v.outputs.version }}" '/^## /{p = ($2 == v); next} p' CHANGELOG.md | sed '/^[[:space:]]*$/d' > notes.md
+          if [ -s notes.md ]; then NOTES=(--notes-file notes.md); else NOTES=(--generate-notes); fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "NetFinder $TAG" "${NOTES[@]}"
           gh release upload "$TAG" dist/NetFinder.exe --clobber

@@ -41,7 +41,7 @@ public sealed class MainForm : Form
     private readonly Panel _banner = new() { Dock = DockStyle.Top, Height = 48, BackColor = Color.FromArgb(255, 244, 206), Visible = false, Padding = new Padding(12, 6, 12, 6) };
     private readonly Label _bannerText = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Panel _updateBanner = new() { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(222, 236, 249), Visible = false, Padding = new Padding(12, 6, 12, 6) };
-    private readonly Label _updateText = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = Theme.Bold };
+    private readonly Label _updateText = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = Theme.Bold, AutoEllipsis = true };
     private UpdateInfo? _update;
 
     // list + tabs
@@ -79,10 +79,15 @@ public sealed class MainForm : Form
     private string _panelSig = "";
     private bool _cleared;
     private readonly bool _justUpdated;
+    private readonly string? _whatsNew; // short list of changes, shown once after an update
 
     public MainForm(bool justUpdated = false)
     {
         _justUpdated = justUpdated;
+        var lastVersion = _settings.LastVersion;
+        if (justUpdated || (lastVersion != null && UpdateChecker.IsNewer(AppInfo.Version, lastVersion)))
+            _whatsNew = Changelog.Text(Changelog.Since(lastVersion));
+        if (lastVersion != AppInfo.Version) { _settings.LastVersion = AppInfo.Version; _settings.Save(); }
         Text = $"{AppInfo.Name} {AppInfo.Version}  –  {AppInfo.Company}";
         Font = Theme.Base;
         Icon = Theme.AppIcon();
@@ -124,8 +129,10 @@ public sealed class MainForm : Form
         Shown += (_, _) =>
         {
             _split.SplitterDistance = (int)(_split.Height * 0.55);
-            if (_justUpdated)
-                BeginInvoke(() => MessageBox.Show(this, $"{AppInfo.Name} was updated to version {AppInfo.Version}.", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information));
+            if (_whatsNew != null)
+                BeginInvoke(() => MessageBox.Show(this,
+                    $"{AppInfo.Name} was updated to version {AppInfo.Version}." + (_whatsNew.Length > 0 ? "\n\nWhat's new:\n" + _whatsNew : ""),
+                    AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information));
             else if (RunningFromZip())
                 BeginInvoke(() => MessageBox.Show(this,
                     $"{AppInfo.Name} is running from INSIDE the zip file (Windows put it in a temporary folder).\n\n" +
@@ -200,12 +207,9 @@ public sealed class MainForm : Form
         var updNow = new Button { Text = "Update now", Dock = DockStyle.Right, Width = 110, BackColor = Theme.Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
         updNow.FlatAppearance.BorderSize = 0;
         updNow.Click += async (_, _) => await InstallUpdateAsync(updNow);
-        var notes = new LinkLabel { Text = "What's new", Dock = DockStyle.Right, Width = 90, TextAlign = ContentAlignment.MiddleCenter };
-        notes.LinkClicked += (_, _) => { if (_update != null) Core.Actions.Launcher.Open(_update.PageUrl); };
         var skip = new LinkLabel { Text = "Later", Dock = DockStyle.Right, Width = 60, TextAlign = ContentAlignment.MiddleCenter };
         skip.LinkClicked += (_, _) => _updateBanner.Visible = false;
         _updateBanner.Controls.Add(_updateText);
-        _updateBanner.Controls.Add(notes);
         _updateBanner.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8 });
         _updateBanner.Controls.Add(updNow);
         _updateBanner.Controls.Add(skip);
@@ -526,7 +530,9 @@ public sealed class MainForm : Form
                 return;
             }
             _update = info;
-            _updateText.Text = $"A new version of {AppInfo.Name} is available: {info.Version}  (you have {AppInfo.Version})" +
+            var summary = Changelog.OneLine(info.Notes);
+            _updateText.Text = $"New version {info.Version} is available (you have {AppInfo.Version})" +
+                (summary.Length > 0 ? ":  " + summary : ".") +
                 (RunningFromZip() ? "  –  extract the zip first, updates can't work from inside it" : "");
             _updateBanner.Visible = true;
         }

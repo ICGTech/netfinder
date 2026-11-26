@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\oui.txt.gz" LogicalName="oui.txt.gz" />
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="CHANGELOG.md" Link="CHANGELOG.md" />
   </ItemGroup>
 </Project>
