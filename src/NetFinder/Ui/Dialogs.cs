@@ -35,7 +35,7 @@ internal static class Dialogs
         };
         var info = new Label
         {
-            Text = $"To read the model, serial number, CPU and RAM of {target}, log in with an account that is administrator on it " +
+            Text = $"To read the model, serial number, CPU, RAM, disks and graphics card of {target}, log in with an account that is administrator on it " +
                    "(e.g. DOMAIN\\admin or PCNAME\\Administrator). Leave empty to use your own Windows login.",
             Left = 12, Top = 10, Width = 436, Height = 52,
         };
@@ -72,7 +72,7 @@ internal static class Dialogs
             Text = $"Include the {otherSubnetDevices} devices on other IP ranges (adds a temporary IP on this PC's network card for each range; removed when NetFinder closes)",
             Left = 12, Top = 52, Width = 496, Height = 44, Checked = otherSubnetDevices > 0, Enabled = otherSubnetDevices > 0,
         };
-        var winBox = new GroupBox { Text = $"Windows PCs ({windowsPcs} found): admin login to read model, serial, CPU, RAM (optional)", Left = 12, Top = 102, Width = 496, Height = 204 };
+        var winBox = new GroupBox { Text = $"Windows PCs ({windowsPcs} found): admin login for model, serial, CPU, RAM, disk, graphics", Left = 12, Top = 102, Width = 496, Height = 204 };
         var useWin = new CheckBox { Text = "Use a Windows login", Left = 12, Top = 24, Width = 300, Checked = current != null || windowsPcs > 0 };
         var lu = new Label { Text = "User:", Left = 12, Top = 56, Width = 80 };
         var tu = new TextBox { Left = 96, Top = 53, Width = 380, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\admin  or  admin@domain.local   (empty = your own login)" };

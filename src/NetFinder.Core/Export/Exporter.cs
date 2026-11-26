@@ -28,7 +28,8 @@ public static class Exporter
     public static readonly string[] Columns =
     {
         "Type", "IP address", "Name", "Model", "Vendor", "Manufacturer", "MAC", "Network", "Subnet", "Open ports", "Serial number",
-        "NVR / channel", "Camera status (NVR)", "Windows", "Found via", "All IPs", "First seen", "Last seen",
+        "NVR / channel", "Camera status (NVR)", "Windows", "CPU", "RAM", "Disk", "Drive C:", "Graphics", "Logged-in user",
+        "Found via", "All IPs", "First seen", "Last seen",
     };
 
     /// <summary>One row of text per device, in IP order. Takes each device's lock while reading it.</summary>
@@ -53,6 +54,12 @@ public static class Exporter
                     d.Info.GetValueOrDefault("NVR channel")?.Replace("  ", " ") ?? (d.Info.TryGetValue("NVR cameras", out var n) ? $"NVR with {n} cameras" : ""),
                     d.Info.GetValueOrDefault("Status on NVR") ?? "",
                     d.Info.GetValueOrDefault("Windows") ?? "",
+                    d.Info.GetValueOrDefault("CPU") ?? "",
+                    d.Info.GetValueOrDefault("RAM") ?? "",
+                    d.Info.GetValueOrDefault("Disk") ?? "",
+                    d.Info.GetValueOrDefault("Drive C:") ?? "",
+                    d.Info.GetValueOrDefault("Graphics") ?? "",
+                    d.Info.GetValueOrDefault("Logged-in user") ?? "",
                     string.Join(" ", d.Sources),
                     string.Join(" ", d.Ips),
                     d.FirstSeen.ToString("yyyy-MM-dd HH:mm:ss"),
@@ -213,7 +220,13 @@ public static class Exporter
         foreach (var t in types) sb.Append($"<span>{t}</span>");
         sb.Append("</div><table><thead><tr>");
         // the report keeps the columns people read; the Excel/CSV files have all of them
-        int[] show = { 0, 1, 2, 3, 4, 6, 7, 9, 10, 11, 12 };
+        // PC hardware columns (Windows, CPU, RAM, Disk, Graphics) only when some PC was read
+        var show = new List<int> { 0, 1, 2, 3, 4, 6, 7, 9, 10, 11, 12 };
+        foreach (var c in new[] { "Windows", "CPU", "RAM", "Disk", "Graphics" })
+        {
+            var i = Array.IndexOf(Columns, c);
+            if (rows.Any(r => r[i].Length > 0)) show.Add(i);
+        }
         foreach (var i in show) sb.Append($"<th>{WebUtility.HtmlEncode(Columns[i])}</th>");
         sb.Append("</tr></thead><tbody>");
         foreach (var r in rows)

@@ -945,8 +945,14 @@ public sealed class MainForm : Form
         // model
         if (ip != null || self)
         {
-            string? model, modelSrc, serial; bool win;
-            lock (d) { model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc; }
+            string? model, modelSrc, serial; bool win; List<string> hw;
+            lock (d)
+            {
+                model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc;
+                hw = new[] { ("CPU", ""), ("RAM", " RAM"), ("Disk", ""), ("Drive C:", ""), ("Graphics", ""), ("Windows", "") }
+                    .Where(k => d.Info.ContainsKey(k.Item1))
+                    .Select(k => k.Item1 == "Drive C:" ? "C: " + d.Info[k.Item1] : d.Info[k.Item1] + k.Item2).ToList();
+            }
             flow.Controls.Add(new Label { Text = "Model", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
             var modelRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             modelRow.Controls.Add(new Label
@@ -964,11 +970,17 @@ public sealed class MainForm : Form
             if (win)
             {
                 var wmi = MakeButton(self ? "Read this PC's model" : "Windows login…", Color.White, Color.Black);
-                new ToolTip().SetToolTip(wmi, "Model, serial number, CPU, RAM and Windows version, read from Windows itself (needs an admin login on that PC)");
+                new ToolTip().SetToolTip(wmi, "Model, serial number, CPU, RAM, disks, graphics card and Windows version, read from Windows itself (needs an admin login on that PC)");
                 wmi.Click += async (_, _) => await GetWindowsModelAsync(d, askLogin: !self);
                 modelRow.Controls.Add(wmi);
             }
             flow.Controls.Add(modelRow);
+            // what Windows told about the PC: CPU, RAM, disks, drive C:, graphics, Windows version
+            if (hw.Count > 0)
+                flow.Controls.Add(new Label
+                {
+                    Text = string.Join("\n", hw), AutoSize = true, ForeColor = Color.FromArgb(60, 60, 60), Margin = new Padding(2, 4, 0, 0),
+                });
         }
 
         // ports

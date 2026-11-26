@@ -4,6 +4,10 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.9
+- Windows PCs: hard disks (model, size, SSD or HDD), drive C: size and free space, and the graphics card with its memory.
+- They show under the model in the device panel, in All details, and in the Excel / CSV / HTML export.
+
 ## 1.1.8
 - Windows models work in a domain: the user can be ALMADA\admin, admin@almada.local or almada.local\admin.
 - If WMI is blocked by the firewall, the PC is read over file sharing (port 445) instead.

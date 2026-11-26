@@ -60,7 +60,7 @@ if (args.Length >= 2 && args[0] == "export")
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.31"), "Ping", null, d => { d.OfferModel("HP LaserJet Pro M404dn", "IPP", 85); d.Info["Serial number"] = "PHBQB12345"; d.OpenPorts.Add(9100); d.Hostname = "Printer <2nd floor> & \"A\""; });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("192.168.5.11"), "NVR", null, d => { d.BehindNvr = "10.10.20.64"; d.Routed = false; d.Info["NVR channel"] = "10.10.20.64  channel 1"; d.Info["Status on NVR"] = "Online"; d.OfferModel("DS-2CD1043G0-I", "NVR", 90); d.Hostname = "بوابة"; });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.64"), "Ping", null, d => { d.Info["NVR cameras"] = "8"; d.OfferModel("DS-7608NI-K2/8P", "Hikvision API", 90); });
-    e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.50"), "Ping", null, d => { d.Info["Windows"] = "Windows 11 Pro (10.0.22631)"; d.OfferModel("Dell OptiPlex 7090", "Windows (WMI)", 100); d.Hostname = "ACC-PC1"; });
+    e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.50"), "Ping", null, d => { d.Info["Windows"] = "Windows 11 Pro (10.0.22631)"; d.Info["CPU"] = "Intel(R) Core(TM) i5-11500 @ 2.70GHz"; d.Info["RAM"] = "16 GB"; d.Info["Disk"] = "SAMSUNG MZVLB256HAHQ (NVMe SSD, 256 GB)  +  ST1000DM010 (HDD, 1 TB)"; d.Info["Drive C:"] = "238 GB (120 GB free)"; d.Info["Graphics"] = "Intel(R) UHD Graphics 750 (1 GB)"; d.OfferModel("Dell OptiPlex 7090", "Windows (WMI)", 100); d.Hostname = "ACC-PC1"; });
     foreach (var ext in new[] { "xlsx", "csv", "html" })
         NetFinder.Core.Export.Exporter.Save(Path.Combine(args[1], "devices." + ext), e.Store.All, "Network devices – test");
     Console.WriteLine("EXPORTED");
@@ -162,6 +162,26 @@ if (args.Length >= 1 && args[0] == "selftest")
     Check("dell 135/445", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 135, 139, 445 }); }), DeviceTypes.WindowsPc);
     Check("dell idrac title", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 80, 443 }); d.PortInfo[443] = "Integrated Dell Remote Access Controller 9"; }), DeviceTypes.Linux);
     Check("hp 135/139/445", Type(d => { d.Vendor = "Hewlett Packard"; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 135, 139, 445 }); }), DeviceTypes.WindowsPc);
+    // disk / graphics text
+    Check("disk size 500GB", NetFinder.Core.Net.HardwareText.DiskSize(500107862016), "500 GB");
+    Check("disk size 256GB", NetFinder.Core.Net.HardwareText.DiskSize(256060514304), "256 GB");
+    Check("disk size 1TB", NetFinder.Core.Net.HardwareText.DiskSize(1000204886016), "1 TB");
+    Check("disk size 2TB", NetFinder.Core.Net.HardwareText.DiskSize(2000398934016), "2 TB");
+    Check("vram 4GB", NetFinder.Core.Net.HardwareText.MemorySize(4294967296), "4 GB");
+    Check("vram 512MB", NetFinder.Core.Net.HardwareText.MemorySize(536870912), "512 MB");
+    Check("drive 476GB", NetFinder.Core.Net.HardwareText.MemorySize(511504035840), "476 GB");
+    Check("disk ssd msft", NetFinder.Core.Net.HardwareText.Disk("SAMSUNG MZVLB256HAHQ-000H1", NetFinder.Core.Net.HardwareText.DiskKind(4, 17, "SAMSUNG MZVLB256HAHQ-000H1"), 256060514304), "SAMSUNG MZVLB256HAHQ-000H1 (NVMe SSD, 256 GB)");
+    Check("disk hdd msft", NetFinder.Core.Net.HardwareText.Disk("ST1000DM010-2EP102", NetFinder.Core.Net.HardwareText.DiskKind(3, 11, "ST1000DM010-2EP102"), 1000204886016), "ST1000DM010-2EP102 (HDD, 1 TB)");
+    Check("disk ssd by name", NetFinder.Core.Net.HardwareText.Disk("Samsung SSD 860 EVO 500GB", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "Samsung SSD 860 EVO 500GB"), 0), "Samsung SSD 860 EVO 500GB");
+    Check("disk hdd by name", NetFinder.Core.Net.HardwareText.DiskKind(0, null, "WDC WD10EZEX-08WN4A0"), "HDD");
+    Check("disk unknown", NetFinder.Core.Net.HardwareText.DiskKind(0, 11, "KINGSTON SA400S37240G"), null);
+    Check("disk from instance nvme", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"SCSI\Disk&Ven_NVMe&Prod_Samsung_SSD_970\5&2d6a7a0b&0&000000"), "NVMe Samsung SSD 970");
+    Check("disk from instance ide", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"IDE\DiskST1000DM003-1CH162___________________CC47____\5&1a2b"), "ST1000DM003-1CH162 CC47");
+    Check("disk from instance sata", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"SCSI\Disk&Ven_&Prod_KINGSTON_SA400S3\4&1"), "KINGSTON SA400S3");
+    Check("disk from instance usb", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"USBSTOR\Disk&Ven_SanDisk&Prod_Cruzer\1"), null);
+    Check("gpu", NetFinder.Core.Net.HardwareText.Gpu("NVIDIA GeForce GTX 1050 Ti", 4294967296), "NVIDIA GeForce GTX 1050 Ti (4 GB)");
+    Check("gpu rdp filtered", NetFinder.Core.Net.HardwareText.IsSoftwareDisplay("Microsoft Remote Display Adapter"), true);
+    Check("gpu intel kept", NetFinder.Core.Net.HardwareText.IsSoftwareDisplay("Intel(R) HD Graphics 630"), false);
     Console.WriteLine(fails == 0 ? "ALL OK" : $"{fails} FAILED");
     return;
 }
