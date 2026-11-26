@@ -121,6 +121,12 @@ public sealed class MainForm : Form
             _split.SplitterDistance = (int)(_split.Height * 0.55);
             if (_justUpdated)
                 BeginInvoke(() => MessageBox.Show(this, $"{AppInfo.Name} was updated to version {AppInfo.Version}.", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information));
+            else if (RunningFromZip())
+                BeginInvoke(() => MessageBox.Show(this,
+                    $"{AppInfo.Name} is running from INSIDE the zip file (Windows put it in a temporary folder).\n\n" +
+                    "Updates cannot replace it there, so it will keep opening the old version.\n\n" +
+                    "Close it, right-click the zip → \"Extract All\", and run NetFinder.exe from the extracted folder (e.g. Desktop or C:\\Tools).",
+                    AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning));
         };
         FormClosing += OnClosing;
     }
@@ -362,6 +368,16 @@ public sealed class MainForm : Form
         }
     }
 
+    /// <summary>Explorer runs an .exe opened inside a .zip from %TEMP%\Temp1_xxx.zip\…, which is thrown away later.</summary>
+    private static bool RunningFromZip()
+    {
+        var path = Environment.ProcessPath ?? "";
+        var temp = Path.GetTempPath();
+        return path.StartsWith(temp, StringComparison.OrdinalIgnoreCase) &&
+               (path.Contains(".zip", StringComparison.OrdinalIgnoreCase) || path.Contains("Temp1_", StringComparison.OrdinalIgnoreCase) ||
+                path.Contains("Rar$", StringComparison.OrdinalIgnoreCase) || path.Contains("7z", StringComparison.OrdinalIgnoreCase));
+    }
+
     private void ShowNpcapBanner(string text)
     {
         _bannerText.Text = text;
@@ -420,7 +436,8 @@ public sealed class MainForm : Form
                 return;
             }
             _update = info;
-            _updateText.Text = $"A new version of {AppInfo.Name} is available: {info.Version}  (you have {AppInfo.Version})";
+            _updateText.Text = $"A new version of {AppInfo.Name} is available: {info.Version}  (you have {AppInfo.Version})" +
+                (RunningFromZip() ? "  –  extract the zip first, updates can't work from inside it" : "");
             _updateBanner.Visible = true;
         }
         catch (Exception ex)
