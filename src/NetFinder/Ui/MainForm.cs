@@ -1452,12 +1452,17 @@ public sealed class MainForm : Form
         "Inbound Rules › New Rule › Predefined: \"Windows Management Instrumentation (WMI)\" (or \"File and Printer Sharing\", port 445) › tick all › Allow the connection.\n" +
         "Then run gpupdate /force on the PCs (or restart them) and try again.";
 
+    /// <summary>Run once as administrator on a PC whose firewall blocks remote management: turns on Windows' own WMI and file-sharing rules.</summary>
+    internal const string AllowRemoteCommand =
+        "powershell -NoProfile -Command \"Get-NetFirewallRule | ? { $_.Name -like 'WMI-*-In-TCP*' -or $_.Name -like 'FPS-SMB-In-TCP*' } | Enable-NetFirewallRule\"";
+
     /// <summary>What to do about a failure, in plain words.</summary>
     private static string WindowsAdvice(WinFail kind, bool single) => kind switch
     {
-        WinFail.Closed or WinFail.Blocked => (single
-            ? "Its firewall blocks remote management. On that PC: Windows Defender Firewall › Allow an app › tick \"Windows Management Instrumentation (WMI)\" (Domain).\n\nFor many PCs at once: "
-            : "To read them, allow WMI in their firewall once. ") + WmiFirewallGpo,
+        WinFail.Closed or WinFail.Blocked =>
+            (single ? "Its firewall blocks remote management. " : "Their firewall blocks remote management. ") +
+            $"Open it once on {(single ? "that PC" : "each of them")}: Command Prompt as administrator there, then run (the line is also in the Log tab):\n{AllowRemoteCommand}\n" +
+            "If an antivirus has its own firewall, allow it there instead.\n\nFor all PCs at once instead: " + WmiFirewallGpo,
         WinFail.BadLogin => "Check the user name and password. In a domain, write the user as DOMAIN\\user (e.g. ALMADA\\administrator) or user@domain.local.",
         WinFail.AccessDenied or WinFail.NotAdmin => "Use an account that is administrator on that PC: a domain admin (DOMAIN\\user or user@domain.local), " +
             "or the PC's own Administrator (PCNAME\\Administrator; Windows 10/11 block other local admin accounts remotely).",
@@ -1617,6 +1622,8 @@ public sealed class MainForm : Form
         if (noSign.Count > 0) lines.Add($"{noSign.Count} device(s) with a PC maker's network card answer, but 135 and 445 are closed and nothing says Windows (a firewall that blocks everything, or not a PC): {Ips(noSign)}");
         if (silent.Count > 0) lines.Add($"{silent.Count} device(s) did not answer at all: they are only in Windows' ARP table (turned off?). Run Get models again while they are on: {Ips(silent)}");
         foreach (var l in lines) _engine.Log("Windows summary: " + l);
+        if (closed.Count + blocked.Count + noSign.Count > 0)
+            _engine.Log("Windows summary: to open a PC's firewall, run this once on it as administrator: " + AllowRemoteCommand);
 
         var advice = new List<string>();
         if (stopReason != null || bad.Count > 0) advice.Add(WindowsAdvice(WinFail.BadLogin, false));

@@ -7,6 +7,7 @@ Keep each line short and simple.
 ## 1.1.11
 - Every disk shows its size (also when the PC is read over port 445), for example "WD2002FYPS (HDD, 2 TB)".
 - All drive letters with size and free space: C:, D:, E:…, each on its own line.
+- PCs blocked by their firewall: NetFinder shows a one-line command to open it on that PC.
 
 ## 1.1.10
 - Windows PCs: every hard disk is listed (SSD and HDD), each on its own line.
