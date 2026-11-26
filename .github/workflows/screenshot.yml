@@ -1,0 +1,30 @@
+# Takes screenshots of the real app on Windows (demo data, light and dark), to check the look without a Windows PC.
+# Run it from Actions → Screenshots → Run workflow; the PNGs are in the run's artifacts.
+name: Screenshots
+
+on:
+  workflow_dispatch:
+
+jobs:
+  shots:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet publish src/NetFinder/NetFinder.csproj -c Release -o dist
+      - name: Screenshots
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $env:NETFINDER_DEMO = "1"
+          $env:NETFINDER_SCREENSHOT = "$PWD\shots"
+          $p = Start-Process dist\NetFinder.exe -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); Write-Host "timed out" }
+          Get-ChildItem shots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/*.png
