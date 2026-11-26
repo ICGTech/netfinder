@@ -73,9 +73,11 @@ public sealed class MainForm : Form
     private int _selectedRev = -1;
     private string _panelSig = "";
     private bool _cleared;
+    private readonly bool _justUpdated;
 
-    public MainForm()
+    public MainForm(bool justUpdated = false)
     {
+        _justUpdated = justUpdated;
         Text = $"{AppInfo.Name} {AppInfo.Version}  –  {AppInfo.Company}";
         Font = Theme.Base;
         Icon = Theme.AppIcon();
@@ -114,7 +116,12 @@ public sealed class MainForm : Form
         _updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync(manual: false);
 
         Load += (_, _) => Startup();
-        Shown += (_, _) => _split.SplitterDistance = (int)(_split.Height * 0.55);
+        Shown += (_, _) =>
+        {
+            _split.SplitterDistance = (int)(_split.Height * 0.55);
+            if (_justUpdated)
+                BeginInvoke(() => MessageBox.Show(this, $"{AppInfo.Name} was updated to version {AppInfo.Version}.", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information));
+        };
         FormClosing += OnClosing;
     }
 
@@ -345,6 +352,7 @@ public sealed class MainForm : Form
             _stMode.ForeColor = Theme.Good;
         }
 
+        if (_justUpdated) _engine.Log($"Updated to version {AppInfo.Version}");
         _btnListen.Checked = true; // starts listening (Npcap, or raw socket without it)
         BeginInvoke(new Action(async () => await ScanAsync()));
         if (_settings.CheckForUpdates && UpdateChecker.Enabled)
@@ -428,13 +436,14 @@ public sealed class MainForm : Form
         try
         {
             await UpdateChecker.InstallAsync(_update, new Progress<int>(p => btn.Text = $"{p}%"), _lifetime.Token);
-            Close(); // the update script waits for us to exit, replaces the .exe and starts the new version
+            Close(); // the new version is already in place and started; it waits for us to exit
         }
         catch (Exception ex)
         {
             btn.Text = "Update now";
             btn.Enabled = true;
-            MessageBox.Show(this, "Update failed: " + ex.Message + "\n\nThe download page will open.", AppInfo.Name);
+            UpdateChecker.Log("FAILED: " + ex);
+            MessageBox.Show(this, "Update failed: " + ex.Message + "\n\nDetails: " + UpdateChecker.LogPath + "\n\nThe download page will open.", AppInfo.Name);
             Core.Actions.Launcher.Open(_update.PageUrl);
         }
     }

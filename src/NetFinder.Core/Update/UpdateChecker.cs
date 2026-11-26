@@ -72,14 +72,30 @@ public static class UpdateChecker
     public static bool IsNewer(string tag, string current) =>
         Version.TryParse(tag.TrimStart('v', 'V'), out var a) && Version.TryParse(current, out var b) && a > b;
 
+    public static string LogPath => Path.Combine(Model.Settings.Folder, "update.log");
+
+    public static void Log(string msg)
+    {
+        try
+        {
+            Directory.CreateDirectory(Model.Settings.Folder);
+            File.AppendAllText(LogPath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {msg}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
     /// <summary>
-    /// Downloads the update and starts a small script that waits for this program to exit,
-    /// replaces the .exe and starts the new version. The caller must exit right after.
+    /// Downloads the update and swaps the .exe while we are still running:
+    /// Windows allows RENAMING a running .exe, so we rename NetFinder.exe → NetFinder.exe.old,
+    /// put the new file in its place, and start it with "--updated-from &lt;pid&gt;".
+    /// The new copy waits for us to exit and deletes the .old file. The caller must exit right after.
+    /// If anything fails the original .exe is put back and an exception is thrown.
     /// </summary>
     public static async Task InstallAsync(UpdateInfo info, IProgress<int>? progress, CancellationToken ct)
     {
+        Log($"Update {AppInfo.Version} -> {info.Version} from {info.DownloadUrl}");
         var dir = Path.Combine(Path.GetTempPath(), AppInfo.DataFolderName + "-update");
-        if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
         Directory.CreateDirectory(dir);
         var file = Path.Combine(dir, info.AssetName);
 
@@ -97,7 +113,9 @@ public static class UpdateChecker
                 got += r;
                 if (total > 0) progress?.Report((int)(got * 100 / total));
             }
+            if (total > 0 && got != total) throw new IOException($"Download incomplete ({got} of {total} bytes).");
         }
+        Log($"Downloaded {new FileInfo(file).Length:N0} bytes to {file}");
 
         var newExe = file;
         if (file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -109,16 +127,57 @@ public static class UpdateChecker
         }
 
         var current = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot find the running program.");
-        var pid = Environment.ProcessId;
-        var script = Path.Combine(dir, "update.cmd");
-        File.WriteAllText(script,
-            "@echo off\r\n" +
-            ":wait\r\n" +
-            $"tasklist /FI \"PID eq {pid}\" 2>nul | find \"{pid}\" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n" +
-            "set n=0\r\n" +
-            ":copy\r\n" +
-            $"copy /y \"{newExe}\" \"{current}\" >nul 2>&1 || (set /a n+=1 & timeout /t 1 /nobreak >nul & if %n% lss 15 goto copy)\r\n" +
-            $"start \"\" \"{current}\"\r\n");
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{script}\"") { CreateNoWindow = true, UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden });
+        var old = current + ".old";
+        Log($"Replacing {current}");
+        try { if (File.Exists(old)) File.Delete(old); }
+        catch { old = current + $".{DateTime.Now:yyyyMMddHHmmss}.old"; }
+
+        File.Move(current, old);                 // allowed while running
+        try
+        {
+            File.Copy(newExe, current, overwrite: false);
+            try { File.Delete(current + ":Zone.Identifier"); } catch { } // drop "downloaded from internet" mark
+        }
+        catch (Exception ex)
+        {
+            Log("Copy failed, restoring: " + ex.Message);
+            try { if (File.Exists(current)) File.Delete(current); } catch { }
+            File.Move(old, current);
+            throw;
+        }
+        Log("New version in place, starting it");
+        Process.Start(new ProcessStartInfo(current, $"--updated-from {Environment.ProcessId}")
+        {
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(current)!,
+        });
+    }
+
+    /// <summary>
+    /// Call at startup. If we were started by an update: wait for the old process to exit, then delete
+    /// the .old files. Returns true when this start is the first run after an update.
+    /// </summary>
+    public static bool FinishUpdate(string[] args)
+    {
+        var updated = false;
+        var i = Array.IndexOf(args, "--updated-from");
+        if (i >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var pid))
+        {
+            updated = true;
+            try { using var p = Process.GetProcessById(pid); p.WaitForExit(15000); } catch { }
+            Log($"Started as {AppInfo.Version} after update");
+        }
+        var current = Environment.ProcessPath;
+        if (current == null) return updated;
+        var folder = Path.GetDirectoryName(current)!;
+        foreach (var f in Directory.GetFiles(folder, Path.GetFileName(current) + "*.old"))
+        {
+            for (var t = 0; t < 10; t++)
+            {
+                try { File.Delete(f); break; }
+                catch { Thread.Sleep(500); }
+            }
+        }
+        return updated;
     }
 }

@@ -5,12 +5,13 @@ namespace NetFinder;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        var justUpdated = Core.Update.UpdateChecker.FinishUpdate(args);
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) =>
             MessageBox.Show(e.Exception.Message, AppInfo.Name + " – error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        Application.Run(new Ui.MainForm());
+        Application.Run(new Ui.MainForm(justUpdated));
     }
 }
