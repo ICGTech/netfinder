@@ -4,6 +4,12 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.13
+- New look: a side menu with the count of each kind of device (PCs, servers, cameras, printers…) and of each network.
+- The selected device opens on the right: its model, how to open it, hardware with SSD / HDD and drive space, open ports.
+- Dark mode: ☰ menu → Dark mode.
+- A PC whose firewall blocks NetFinder shows "Firewall blocks it" in the list.
+
 ## 1.1.12
 - PCs blocked by their firewall: the fix is now two netsh lines that work in Command Prompt (the old PowerShell line broke when pasted there).
 

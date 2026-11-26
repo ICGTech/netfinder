@@ -1133,7 +1133,8 @@ public sealed class MainForm : Form
         if (Regex.IsMatch(v, @"hikvision", RegexOptions.IgnoreCase)) return "Hikvision";
         if (Regex.IsMatch(v, @"dahua", RegexOptions.IgnoreCase)) return "Dahua";
         if (Regex.IsMatch(v, @"^tp-?link", RegexOptions.IgnoreCase)) return "TP-Link";
-        var s = Regex.Replace(v, @"[,.]?\s*\b(inc|incorporated|corp|corporation|co|ltd|limited|llc|gmbh|ag|s\.?a|technologies|technology|electronics|international)\b\.?", "", RegexOptions.IgnoreCase);
+        var s = Regex.Replace(v, @"\s*\([^)]*\)", "");
+        s = Regex.Replace(s, @"[,.]?\s*\b(inc|incorporated|corp|corporate|corporation|co|ltd|limited|llc|gmbh|ag|s\.?a|technologies|technology|electronics|international)\b\.?", "", RegexOptions.IgnoreCase);
         s = Regex.Replace(s, @"[\s,.]+$", "").Trim();
         return s.Length >= 2 ? s : v;
     }
