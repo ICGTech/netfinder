@@ -1,0 +1,42 @@
+# Publishing a new version:
+#   1. git tag v1.2.0 && git push origin v1.2.0
+#   2. This workflow builds NetFinder.exe with that version and creates the GitHub release.
+#   3. Every running copy of the program sees the new release and offers "Update now".
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Version
+        id: v
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then V="${{ github.event.inputs.version }}"; else V="${GITHUB_REF_NAME#v}"; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: dotnet publish src/NetFinder/NetFinder.csproj -c Release -o dist -p:Version=${{ steps.v.outputs.version }}
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.v.outputs.version }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "NetFinder $TAG" --generate-notes
+          gh release upload "$TAG" dist/NetFinder.exe --clobber

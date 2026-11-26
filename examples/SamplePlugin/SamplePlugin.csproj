@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build:  dotnet build -c Release   then copy bin\Release\net8.0\SamplePlugin.dll
+       into the "plugins" folder next to NetFinder.exe -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\NetFinder.Core\NetFinder.Core.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>
