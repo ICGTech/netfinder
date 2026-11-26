@@ -25,8 +25,8 @@ internal static class Ui
         g.SmoothingMode = smooth;
     }
 
-    public const TextFormatFlags Line = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter;
-    public const TextFormatFlags Wrap = TextFormatFlags.NoPadding | TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl;
+    public const TextFormatFlags Line = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix;
+    public const TextFormatFlags Wrap = TextFormatFlags.NoPadding | TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl | TextFormatFlags.NoPrefix;
 
     public static int WrapHeight(string text, Font f, int width) =>
         text.Length == 0 ? 0 : TextRenderer.MeasureText(text, f, new Size(Math.Max(10, width), int.MaxValue), Wrap).Height;
@@ -708,11 +708,86 @@ internal sealed class ChipList : Control
     }
 }
 
+/// <summary>A drop-down list drawn in the theme colors (the Windows combo box stays light in dark mode).</summary>
+internal sealed class DropPicker : Control
+{
+    public readonly List<object> Items = new();
+    private int _index = -1;
+    private bool _hot;
+    public event EventHandler? SelectedIndexChanged;
+
+    public DropPicker() { Ui.Painted(this); Height = LogicalToDeviceUnits(32); Cursor = Cursors.Hand; Font = Theme.Base; }
+
+    public int SelectedIndex
+    {
+        get => _index;
+        set { if (value == _index) return; _index = value; Invalidate(); SelectedIndexChanged?.Invoke(this, EventArgs.Empty); }
+    }
+
+    public object? SelectedItem
+    {
+        get => _index >= 0 && _index < Items.Count ? Items[_index] : null;
+        set => SelectedIndex = value == null ? -1 : Items.IndexOf(value);
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hot = true; Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hot = false; Invalidate(); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var P = Theme.P;
+        var g = e.Graphics;
+        g.Clear(Parent?.BackColor ?? P.Surface);
+        Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), LogicalToDeviceUnits(7), _hot ? P.Hover : P.InputBg, P.Border);
+        var s = LogicalToDeviceUnits(1);
+        TextRenderer.DrawText(g, SelectedItem?.ToString() ?? "", Font, new Rectangle(10 * s, 0, Width - 34 * s, Height), P.Text, Ui.Line);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var pen = new Pen(P.Muted, 1.6f * s);
+        var cx = Width - 16 * s; var cy = Height / 2;
+        g.DrawLines(pen, new[] { new Point(cx - 4 * s, cy - 2 * s), new Point(cx, cy + 2 * s), new Point(cx + 4 * s, cy - 2 * s) });
+    }
+
+    protected override void OnMouseClick(MouseEventArgs e)
+    {
+        base.OnMouseClick(e);
+        var menu = new ContextMenuStrip { Renderer = new ChromeRenderer(), ShowCheckMargin = true, ShowImageMargin = false, MaximumSize = new Size(LogicalToDeviceUnits(520), 0) };
+        for (var i = 0; i < Items.Count; i++)
+        {
+            var n = i;
+            var item = new ToolStripMenuItem(Items[i].ToString()?.Replace("&", "&&")) { Checked = i == _index, Font = Font };
+            item.Click += (_, _) => SelectedIndex = n;
+            menu.Items.Add(item);
+        }
+        menu.Closed += (_, _) => BeginInvoke(new Action(menu.Dispose));
+        menu.Show(this, new Point(0, Height + 2));
+    }
+}
+
 internal static class Native
 {
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] private static extern int SetWindowTheme(IntPtr hwnd, string? app, string? idList);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+
+    /// <summary>The window as it is on screen (PW_RENDERFULLCONTENT), or null.</summary>
+    public static Bitmap? Capture(Form f)
+    {
+        try
+        {
+            var bmp = new Bitmap(f.Width, f.Height);
+            bool ok;
+            using (var g = Graphics.FromImage(bmp))
+            {
+                var hdc = g.GetHdc();
+                try { ok = PrintWindow(f.Handle, hdc, 2); } finally { g.ReleaseHdc(hdc); }
+            }
+            if (ok) return bmp;
+            bmp.Dispose();
+        }
+        catch { }
+        return null;
+    }
 
     /// <summary>Dark title bar on Windows 10 (2004+) and 11.</summary>
     public static void DarkTitleBar(Form f, bool dark)

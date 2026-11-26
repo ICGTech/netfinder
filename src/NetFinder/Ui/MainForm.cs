@@ -52,13 +52,13 @@ public sealed class MainForm : Form
     private readonly NavList _nav = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _navBottom = new() { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
     private readonly Label _adapterLabel = new() { Text = "ADAPTER", AutoSize = true, Font = Theme.Section };
-    private readonly ComboBox _cmbAdapter = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+    private readonly DropPicker _cmbAdapter = new();
     private readonly InfoCard _npcapCard = new();
 
     // list
     private readonly SplitContainer _split = new() { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2, SplitterWidth = 1 };
     private readonly FlowLayoutPanel _titleRow = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = false };
-    private readonly Label _title = new() { Text = "All devices", AutoSize = true, Font = Theme.Heading, Margin = new Padding(0) };
+    private readonly Label _title = new() { Text = "All devices", AutoSize = true, Font = Theme.Heading, Margin = new Padding(0), UseMnemonic = false };
     private readonly Label _summary = new() { AutoSize = true, Font = Theme.Header };
     private readonly Panel _gridCard = new() { Dock = DockStyle.Fill, Padding = new Padding(1) };
     private readonly DataGridView _grid = new();
@@ -73,7 +73,7 @@ public sealed class MainForm : Form
     private readonly InfoTable _details = new() { Location = new Point(0, 12), KeyWidth = 130 };
     private readonly Panel _logPanel = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly FlowLayoutPanel _logBar = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
-    private readonly LinkLabel _logCopy = new() { Text = "Copy", AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
+    private readonly LinkLabel _logCopy = new() { Text = "Copy", AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
     private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None };
     // the Log tab shows the lines about the selected device (all of them when nothing is selected or the box is unticked)
     private readonly CheckBox _logOnlySel = new() { Text = "Only lines about the selected device", Checked = true, AutoSize = true, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 5, 12, 0) };
@@ -197,7 +197,7 @@ public sealed class MainForm : Form
         {
             _split.Panel1MinSize = S(360);
             _split.Panel2MinSize = S(340);
-            _split.SplitterDistance = Math.Max(S(360), _split.Width - S(430));
+            _split.SplitterDistance = Math.Max(S(360), _split.Width - S(412));
         }
         catch (InvalidOperationException) { }
         catch (ArgumentOutOfRangeException) { }
@@ -295,7 +295,7 @@ public sealed class MainForm : Form
 
     private void BuildNav()
     {
-        _navHost.Width = S(228);
+        _navHost.Width = S(220);
         _navHost.Padding = new Padding(0, 0, 1, 0);
         _nav.Section("Devices");
         _nav.Add("all", "All devices");
@@ -321,7 +321,7 @@ public sealed class MainForm : Form
         _navBottom.Padding = new Padding(S(12), S(8), S(12), S(14));
         _adapterLabel.Margin = new Padding(S(10), 0, 0, S(6));
         _cmbAdapter.Width = w;
-        _cmbAdapter.DropDownWidth = S(380);
+        new ToolTip().SetToolTip(_cmbAdapter, "Which network card to scan. All connected adapters = every real one (not the virtual ones of Hyper-V / VMware).");
         _cmbAdapter.Margin = new Padding(0, 0, 0, S(12));
         _npcapCard.Width = w;
         _npcapCard.Margin = new Padding(0);
@@ -365,14 +365,14 @@ public sealed class MainForm : Form
             _grid.Columns.Add(c);
             return c;
         }
-        Col("Type", "Type", 150);
-        Col("Ip", "IP address", 112).DefaultCellStyle.Font = Theme.Mono;
-        Col("Name", "Name", 150);
-        Col("Model", "Model", 190).DefaultCellStyle.Font = Theme.Bold;
-        Col("Vendor", "Vendor", 130);
+        Col("Type", "Type", 160);
+        Col("Ip", "IP address", 124).DefaultCellStyle.Font = Theme.Mono;
+        Col("Name", "Name", 140);
+        Col("Model", "Model", 180).DefaultCellStyle.Font = Theme.Bold;
+        Col("Vendor", "Vendor", 105);
         _grid.Columns.Add(new DataGridViewLinkColumn
         {
-            Name = "Open", HeaderText = "Open", Width = S(105), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
+            Name = "Open", HeaderText = "Open", Width = S(100), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
             LinkBehavior = LinkBehavior.HoverUnderline, ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
         });
         Col("Mac", "MAC", 135).DefaultCellStyle.Font = Theme.Mono;
@@ -505,7 +505,7 @@ public sealed class MainForm : Form
         _logCopy.LinkClicked += (_, _) => { if (_log.TextLength > 0) Clipboard.SetText(_log.Text); };
         _logOnlySel.CheckedChanged += (_, _) => UpdateLogView(force: true);
         _logBar.Padding = new Padding(0, 0, 0, S(6));
-        _logBar.Controls.AddRange(new Control[] { _logOnlySel, _logInfo, _logCopy });
+        _logBar.Controls.AddRange(new Control[] { _logOnlySel, _logCopy, _logInfo });
         _logPanel.Controls.Add(_log);
         _logPanel.Controls.Add(_logBar);
         _log.BringToFront();
@@ -553,8 +553,7 @@ public sealed class MainForm : Form
         _navHost.BackColor = p.Border;
         _navBottom.BackColor = p.Surface2;
         _adapterLabel.ForeColor = p.Muted;
-        _cmbAdapter.BackColor = p.InputBg;
-        _cmbAdapter.ForeColor = p.Text;
+        _cmbAdapter.Invalidate();
 
         _split.BackColor = p.Border;
         _split.Panel1.BackColor = p.Bg;
@@ -605,7 +604,7 @@ public sealed class MainForm : Form
         if (!IsHandleCreated) return;
         var dark = Theme.P.Dark;
         Native.DarkTitleBar(this, dark);
-        foreach (var c in new Control[] { _grid, _log, _devicePanel, _detailsPanel, _cmbAdapter }) Native.DarkScrollbars(c, dark);
+        foreach (var c in new Control[] { _grid, _log, _devicePanel, _detailsPanel }) Native.DarkScrollbars(c, dark);
     }
 
     // ───────────────────────────── screenshots ─────────────────────────────
@@ -645,13 +644,27 @@ public sealed class MainForm : Form
 
     private void Shot(string path)
     {
-        using var full = new Bitmap(Width, Height);
-        DrawToBitmap(full, new Rectangle(Point.Empty, Size));
+        Refresh();
+        using var full = Native.Capture(this) is { } b && !IsBlack(b) ? b : DrawnBitmap();
         var origin = PointToScreen(Point.Empty);
         var client = new Rectangle(origin.X - Left, origin.Y - Top, ClientSize.Width, ClientSize.Height);
         client.Intersect(new Rectangle(Point.Empty, full.Size));
         using var crop = full.Clone(client, full.PixelFormat);
         crop.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+    }
+
+    private Bitmap DrawnBitmap()
+    {
+        var b = new Bitmap(Width, Height);
+        DrawToBitmap(b, new Rectangle(Point.Empty, Size));
+        return b;
+    }
+
+    private static bool IsBlack(Bitmap b)
+    {
+        for (var i = 1; i < 10; i++)
+            if (b.GetPixel(b.Width * i / 10, b.Height * i / 10).ToArgb() != Color.Black.ToArgb()) return false;
+        return true;
     }
 
     // ───────────────────────────── startup ─────────────────────────────
@@ -1031,12 +1044,13 @@ public sealed class MainForm : Form
         var kinds = new Dictionary<string, int>();
         foreach (var r in _rows.Values)
         {
-            if (r.Tag is not Device d || d.IsSelf) continue;
+            if (r.Tag is not Device d) continue;
             total++;
             lock (d)
             {
                 var k = Category(d);
                 kinds[k] = kinds.GetValueOrDefault(k) + 1;
+                if (d.IsSelf) { mine++; continue; }
                 if (d.Ip == null) continue;
                 if (d.Routed) routed++;
                 else if (d.Reachable) mine++;
@@ -1261,7 +1275,7 @@ public sealed class MainForm : Form
     }
 
     private Label SectionLabel(string text, int top = 18) =>
-        new() { Text = text.ToUpperInvariant(), Font = Theme.Section, ForeColor = Theme.P.Muted, AutoSize = true, Margin = new Padding(0, S(top), 0, S(6)) };
+        new() { Text = text.ToUpperInvariant(), Font = Theme.Section, ForeColor = Theme.P.Muted, AutoSize = true, Margin = new Padding(0, S(top), 0, S(6)), UseMnemonic = false };
 
     private void RenderDevicePanel(Device d)
     {
@@ -1303,7 +1317,7 @@ public sealed class MainForm : Form
         ClearPanel(_devicePanel);
         var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0), Padding = new Padding(0, 0, 0, S(16)), Location = new Point(0, 0), BackColor = P.Surface };
         Label Text(string t, Font f, Color c, int top = 0, int bottom = 0) =>
-            new() { Text = t, Font = f, ForeColor = c, AutoSize = true, MaximumSize = new Size(W, 0), Margin = new Padding(0, S(top), 0, S(bottom)) };
+            new() { Text = t, Font = f, ForeColor = c, AutoSize = true, MaximumSize = new Size(W, 0), Margin = new Padding(0, S(top), 0, S(bottom)), UseMnemonic = false };
         FlowLayoutPanel Buttons() => new() { AutoSize = true, WrapContents = true, MaximumSize = new Size(W + S(8), 0), Margin = new Padding(0, S(6), 0, 0), Padding = new Padding(0), BackColor = P.Surface };
 
         // model
@@ -1317,7 +1331,7 @@ public sealed class MainForm : Form
                 flow.Controls.Add(new Label
                 {
                     Text = "⚠  " + winStatus + (winStatus.StartsWith("Firewall") ? ": Windows did not let us read it. The fix is in the Log tab." : ""),
-                    AutoSize = true, MaximumSize = new Size(W, 0), BackColor = P.WarnSoft, ForeColor = P.Warn, Font = Theme.Bold,
+                    AutoSize = true, MaximumSize = new Size(W, 0), BackColor = P.WarnSoft, ForeColor = P.Warn, Font = Theme.Bold, UseMnemonic = false,
                     Padding = new Padding(S(8), S(4), S(8), S(4)), Margin = new Padding(0, S(8), 0, 0),
                 });
             var mb = Buttons();
@@ -1384,11 +1398,13 @@ public sealed class MainForm : Form
             }
             if (actions.Any(a => a.Group == "Web"))
             {
-                var port = new TextBox { Width = S(64), PlaceholderText = "port", Margin = new Padding(0, S(9), S(6), 0), BackColor = P.InputBg, ForeColor = P.Text, BorderStyle = BorderStyle.FixedSingle };
+                var port = new InputBox(72) { Margin = new Padding(0, S(4), S(6), S(4)) };
+                port.Box.PlaceholderText = "port";
+                port.Height = S(32);
                 var go = MakeButton("Open port");
                 go.Click += async (_, _) =>
                 {
-                    if (!int.TryParse(port.Text, out var p) || p is < 1 or > 65535 || ip == null) return;
+                    if (!int.TryParse(port.Box.Text, out var p) || p is < 1 or > 65535 || ip == null) return;
                     var scheme = p is 443 or 8443 or 4443 or 9443 ? "https" : "http";
                     await RunAction(d, new DeviceAction("Web", $"{scheme}://{ip}:{p}", () => Core.Actions.Launcher.Open($"{scheme}://{ip}:{p}/")));
                 };
@@ -1448,9 +1464,9 @@ public sealed class MainForm : Form
         var edit = Buttons();
         var rename = MakeButton("Rename…");
         rename.Click += (_, _) => Rename(d);
-        var typeBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Width = S(200), Margin = new Padding(0, S(8), 0, 0), BackColor = P.InputBg, ForeColor = P.Text };
+        var typeBox = new DropPicker { Width = S(220), Margin = new Padding(0, S(4), 0, S(4)) };
         typeBox.Items.Add("Type: automatic");
-        typeBox.Items.AddRange(DeviceTypes.All.Where(t => t != DeviceTypes.Unknown).Cast<object>().ToArray());
+        typeBox.Items.AddRange(DeviceTypes.All.Where(t => t != DeviceTypes.Unknown));
         lock (d) typeBox.SelectedItem = d.TypeOverride ?? (object)"Type: automatic";
         typeBox.SelectedIndexChanged += (_, _) => SetType(d, typeBox.SelectedIndex == 0 ? null : typeBox.SelectedItem as string);
         edit.Controls.Add(rename);
@@ -1459,7 +1475,6 @@ public sealed class MainForm : Form
 
         _devicePanel.Controls.Add(flow);
         _devicePanel.ResumeLayout();
-        if (P.Dark) Native.DarkScrollbars(typeBox, true);
     }
 
     /// <summary>CPU, RAM, each disk (with an SSD / HDD chip), each drive (with how full it is), graphics: what Windows told (call inside lock).</summary>
