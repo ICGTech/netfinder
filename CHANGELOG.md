@@ -4,6 +4,12 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.12
+- New look: a side menu with the count of each kind of device (PCs, servers, cameras, printers…) and of each network.
+- The selected device opens on the right: its model, how to open it, hardware with SSD / HDD and drive space, open ports.
+- Dark mode: ☰ menu → Dark mode.
+- A PC whose firewall blocks NetFinder shows "Firewall blocks it" in the list. The fix is two netsh lines that work in Command Prompt.
+
 ## 1.1.11
 - Every disk shows its size (also when the PC is read over port 445), for example "WD2002FYPS (HDD, 2 TB)".
 - All drive letters with size and free space: C:, D:, E:…, each on its own line.
