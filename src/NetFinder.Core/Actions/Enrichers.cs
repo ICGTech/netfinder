@@ -98,7 +98,7 @@ public sealed class NameEnricher : IDeviceEnricher
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(1500);
             var res = await udp.ReceiveAsync(cts.Token);
-            var name = ParseNodeStatus(res.Buffer, out var group);
+            var name = Analyzers.NetbiosAnalyzer.ParseNodeStatus(res.Buffer, out var group);
             if (name != null)
                 ctx.Engine.Store.Touch(device, d =>
                 {
@@ -110,22 +110,4 @@ public sealed class NameEnricher : IDeviceEnricher
         catch { }
     }
 
-    private static string? ParseNodeStatus(byte[] b, out string? group)
-    {
-        group = null;
-        // header 12, name 34, type/class 4, ttl 4, rdlength 2, then count
-        var off = 12 + 34 + 4 + 4 + 2;
-        if (b.Length <= off) return null;
-        int count = b[off++];
-        string? name = null;
-        for (var i = 0; i < count && off + 18 <= b.Length; i++, off += 18)
-        {
-            var n = Encoding.ASCII.GetString(b, off, 15).Trim();
-            var suffix = b[off + 15];
-            var isGroup = (b[off + 16] & 0x80) != 0;
-            if (suffix == 0 && !isGroup) name ??= n;
-            if (suffix == 0 && isGroup) group ??= n;
-        }
-        return name;
-    }
 }

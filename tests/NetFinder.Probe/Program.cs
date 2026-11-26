@@ -77,6 +77,94 @@ if (args.Length >= 1 && args[0] == "changelog")
     Console.WriteLine("--- banner (generated notes): [" + NetFinder.Core.Update.Changelog.OneLine("## What's Changed\n* 1.1.6 by @x in #1\n\n**Full Changelog**: https://x") + "]");
     return;
 }
+// Offline checks of the 1.1.8 parsers: NetFinder.Probe selftest
+if (args.Length >= 1 && args[0] == "selftest")
+{
+    var fails = 0;
+    void Check(string what, object? got, object? want)
+    {
+        var ok = Equals(got?.ToString(), want?.ToString());
+        if (!ok) fails++;
+        Console.WriteLine($"{(ok ? "OK  " : "FAIL")} {what}: {got ?? "null"}{(ok ? "" : $"   (want {want ?? "null"})")}");
+    }
+    // SMBIOS: header + type 0, 1, 2, 3, 17 (8 GB), 17 (32 GB extended), 17 (empty slot), 127
+    var t = new List<byte>();
+    void Struct(byte type, byte[] formatted, params string[] strings)
+    {
+        t.Add(type); t.Add((byte)(formatted.Length + 4)); t.Add(0); t.Add(0); t.AddRange(formatted);
+        if (strings.Length == 0) { t.Add(0); t.Add(0); return; }
+        foreach (var x in strings) { t.AddRange(System.Text.Encoding.ASCII.GetBytes(x)); t.Add(0); }
+        t.Add(0);
+    }
+    Struct(0, new byte[] { 1, 2, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, "Dell Inc.", "1.21.0", "05/10/2024");
+    // version string index 0 = "none" (SMBIOS has no empty strings)
+    var t1 = new byte[0x1B - 4]; t1[0] = 1; t1[1] = 2; t1[2] = 0; t1[3] = 3; t1[0x19 - 4] = 4; t1[0x1A - 4] = 5;
+    Struct(1, t1, "Dell Inc.", "OptiPlex 7090", "8XK2QJ3", "0A8E", "OptiPlex");
+    Struct(2, new byte[] { 1, 2, 0, 0 }, "Dell Inc.", "0K0WPK");
+    Struct(3, new byte[] { 1, 3, 0, 2 }, "Dell Inc.", "CHASSIS1");
+    var m8 = new byte[0x22 - 4]; BitConverter.GetBytes((ushort)8192).CopyTo(m8, 0x0C - 4); Struct(17, m8);
+    var m32 = new byte[0x22 - 4]; BitConverter.GetBytes((ushort)0x7FFF).CopyTo(m32, 0x0C - 4); BitConverter.GetBytes(32768u).CopyTo(m32, 0x1C - 4); Struct(17, m32);
+    var m0 = new byte[0x22 - 4]; Struct(17, m0);
+    Struct(127, Array.Empty<byte>());
+    var blob = new List<byte> { 0, 3, 4, 0 }; blob.AddRange(BitConverter.GetBytes(t.Count)); blob.AddRange(t);
+    var sm = NetFinder.Core.Net.Smbios.Parse(blob.ToArray());
+    Check("smbios maker", sm?.Manufacturer, "Dell Inc.");
+    Check("smbios product", sm?.Product, "OptiPlex 7090");
+    Check("smbios version (empty string)", sm?.Version, null);
+    Check("smbios serial", sm?.Serial, "8XK2QJ3");
+    Check("smbios family", sm?.Family, "OptiPlex");
+    Check("smbios board", $"{sm?.BoardMaker} {sm?.BoardProduct}", "Dell Inc. 0K0WPK");
+    Check("smbios chassis serial", sm?.ChassisSerial, "CHASSIS1");
+    Check("smbios bios", sm?.BiosVersion, "1.21.0");
+    Check("smbios ram GB", sm == null ? null : sm.RamBytes / 1073741824, 40);
+    Check("smbios garbage", NetFinder.Core.Net.Smbios.Parse(new byte[] { 1, 2, 3 }), null);
+
+    // user name spellings
+    string Sp(string u, string? h = null) => string.Join(" | ", NetFinder.Core.Net.WindowsNames.UserSpellings(u, h));
+    Check("spell dns\\user", Sp(@"almada.local\administrator"), @"ALMADA\administrator | administrator@almada.local | almada.local\administrator");
+    Check("spell dns\\user + hint", Sp(@"almada.local\administrator", "ALMADA-HQ"), @"ALMADA-HQ\administrator | ALMADA\administrator | administrator@almada.local | almada.local\administrator");
+    Check("spell upn", Sp("administrator@almada.local", "ALMADA"), @"administrator@almada.local | ALMADA\administrator");
+    Check("spell netbios", Sp(@"ALMADA\administrator", "ALMADA"), @"ALMADA\administrator");
+    Check("spell bare", Sp("administrator"), "administrator");
+    Check("spell workgroup hint ignored", Sp(@"x.local\a", "WORKGROUP"), @"X\a | a@x.local | x.local\a");
+
+    // UPnP: software agents on PCs are not models
+    NetFinder.Core.Net.UpnpDescription U(string? n, string? num) => new(null, null, n, num, null, null, null, null);
+    Check("upnp HP agent", U("ProductAgent1.0", "1-00-00").Model, null);
+    Check("upnp windows media", U("Windows Media Player Sharing", "12.0").Model, null);
+    Check("upnp router", U("Archer C6", "2.0").Model, "Archer C6 2.0");
+    Check("upnp nas", U("WDMyCloudEX4100", "BWZE").Model, "WDMyCloudEX4100 BWZE");
+
+    // NetBIOS node status: unique <00> = PC name, group <00> = domain; "*" never becomes a name
+    var ns = new List<byte>(new byte[12]); ns.Add(32); ns.AddRange(System.Text.Encoding.ASCII.GetBytes("CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")); ns.Add(0);
+    ns.AddRange(new byte[] { 0, 0x21, 0, 1, 0, 0, 0, 0, 0, 0 });
+    var names = new (string n, byte suf, bool grp)[] { ("ALMADA", 0, true), ("AHMED-SAMY", 0, false), ("AHMED-SAMY", 0x20, false), ("ALMADA", 0x1e, true) };
+    ns.Add((byte)names.Length);
+    foreach (var (n, suf, grp) in names) { ns.AddRange(System.Text.Encoding.ASCII.GetBytes(n.PadRight(15))); ns.Add(suf); ns.Add((byte)(grp ? 0x84 : 0x04)); ns.Add(0); }
+    var nb = NetFinder.Core.Analyzers.NetbiosAnalyzer.ParseNodeStatus(ns.ToArray(), out var grpName);
+    Check("nbstat name", nb, "AHMED-SAMY");
+    Check("nbstat domain", grpName, "ALMADA");
+    var star = new byte[34]; star[0] = 32; var enc = "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"u8.ToArray(); enc.CopyTo(star, 1);
+    Check("decode '*' name", NetFinder.Core.Analyzers.NetbiosAnalyzer.DecodeName(star, out var sfx), "*");
+
+    // classifier: Dell with only web ports is not a Windows PC; Dell with nothing open still is; iDRAC title
+    var cl = new NetFinder.Core.Classifiers.BuiltInClassifier();
+    string Type(Action<Device> set)
+    {
+        var d = new Device("10.0.0.250", "E4:43:4B:8E:19:44", System.Net.IPAddress.Parse("10.0.0.250"));
+        set(d);
+        var sc = new NetFinder.Core.Plugins.TypeScores();
+        cl.Score(d, sc);
+        return sc.Best is { Score: >= 20 } b ? b.Type : DeviceTypes.Unknown;
+    }
+    Check("dell 80/443/8000", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 80, 443, 8000 }); }), DeviceTypes.Linux);
+    Check("dell no ports", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; }), DeviceTypes.WindowsPc);
+    Check("dell 135/445", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 135, 139, 445 }); }), DeviceTypes.WindowsPc);
+    Check("dell idrac title", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 80, 443 }); d.PortInfo[443] = "Integrated Dell Remote Access Controller 9"; }), DeviceTypes.Linux);
+    Check("hp 135/139/445", Type(d => { d.Vendor = "Hewlett Packard"; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 135, 139, 445 }); }), DeviceTypes.WindowsPc);
+    Console.WriteLine(fails == 0 ? "ALL OK" : $"{fails} FAILED");
+    return;
+}
 // ONVIF multicast scan from one local address: NetFinder.Probe onvif <localIp>
 if (args.Length >= 2 && args[0] == "onvif")
 {

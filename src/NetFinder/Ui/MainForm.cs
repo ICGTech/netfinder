@@ -27,6 +27,7 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _btnModels = new("Get models") { ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
     private readonly ToolStripStatusLabel _stExport = new("Export results…") { IsLink = true, Visible = false, LinkBehavior = LinkBehavior.HoverUnderline, Margin = new Padding(8, 3, 8, 2) };
     private Dialogs.WindowsLogin? _winLogin; // memory only, never saved
+    private bool _virtualSkipLogged;
     private CancellationTokenSource? _modelsCts;
     private readonly ToolStripLabel _lblCount = new("0 devices") { Font = new Font("Segoe UI Semibold", 11f), ForeColor = Theme.Accent, Alignment = ToolStripItemAlignment.Right, Margin = new Padding(12, 0, 4, 0) };
 
@@ -566,7 +567,17 @@ public sealed class MainForm : Form
     private List<Adapter> SelectedAdapters()
     {
         if (_cmbAdapter.SelectedItem is Adapter a) return new List<Adapter> { a };
-        return _engine.Adapters.Where(x => x.IsUp && (x.Addresses.Count > 0 || _engine.CaptureAvailable)).ToList();
+        var up = _engine.Adapters.Where(x => x.IsUp && (x.Addresses.Count > 0 || _engine.CaptureAvailable)).ToList();
+        // host-only virtual networks (Hyper-V "Default Switch", VMware VMnet1/8…) hold only this PC's VMs: skip them unless picked by name
+        var real = up.Where(x => !x.IsHostOnlyVirtual).ToList();
+        if (real.Count == 0) return up;
+        var skipped = up.Except(real).Select(x => x.FriendlyName).ToList();
+        if (skipped.Count > 0 && !_virtualSkipLogged)
+        {
+            _virtualSkipLogged = true;
+            _engine.Log($"Skipping virtual adapters {string.Join(", ", skipped)} (only this PC's virtual machines are there; pick one in the Adapter list to scan it)");
+        }
+        return real;
     }
 
     private void ToggleListen(bool on)
@@ -935,7 +946,7 @@ public sealed class MainForm : Form
         if (ip != null || self)
         {
             string? model, modelSrc, serial; bool win;
-            lock (d) { model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d); }
+            lock (d) { model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc; }
             flow.Controls.Add(new Label { Text = "Model", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
             var modelRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             modelRow.Controls.Add(new Label
@@ -1244,12 +1255,34 @@ public sealed class MainForm : Form
 
     private static bool LooksWindowsLocked(Device d) { lock (d) return LooksWindows(d); }
 
-    /// <summary>Windows PC (or probably one): worth asking over WMI.</summary>
+    /// <summary>Windows PC (or probably one): worth asking with a Windows login. A PC maker's MAC alone is not enough.</summary>
     private static bool LooksWindows(Device d) =>
-        d.IsSelf || d.EffectiveType is DeviceTypes.WindowsPc || d.OpenPorts.Contains(135) || d.OpenPorts.Contains(3389) ||
-        (d.OpenPorts.Contains(445) && d.EffectiveType is DeviceTypes.Unknown or DeviceTypes.Vm) || d.Info.GetValueOrDefault("TTL") == "128";
+        d.IsSelf || d.Info.ContainsKey("Windows") || d.OpenPorts.Contains(135) || d.OpenPorts.Contains(3389) ||
+        (d.OpenPorts.Contains(445) && d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.Unknown or DeviceTypes.Vm) ||
+        (d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.Vm or DeviceTypes.Unknown && d.Info.GetValueOrDefault("TTL") == "128") ||
+        (d.EffectiveType == DeviceTypes.WindowsPc && d.PortsCheckedAt != null && d.OpenPorts.Count == 0);
 
-    /// <summary>Reads one PC's model over WMI (asks for a login when none is remembered yet).</summary>
+    /// <summary>The short (NetBIOS) domain name the Windows PCs on the list report ("ALMADA"), to spell the user name.</summary>
+    private string? DomainHint() =>
+        _engine.Store.All.Select(d => { lock (d) return d.Info.GetValueOrDefault("Workgroup / domain"); })
+            .Where(v => v != null && !v.Contains('.') && !v.Equals("WORKGROUP", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(v => v!, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).Select(g => g.Key).FirstOrDefault();
+
+    /// <summary>PCs to check the login on first: domain members that answer SMB (the domain controller is ideal).</summary>
+    private List<string> LoginCheckHosts(string user)
+    {
+        var dom = user.Contains('\\') ? user[..user.IndexOf('\\')] : user.Contains('@') ? user[(user.LastIndexOf('@') + 1)..] : null;
+        var hint = DomainHint();
+        return _engine.Store.All
+            .Select(d => { lock (d) return (d, ip: d.Ip, ok: !d.IsSelf && d.Reachable && d.OpenPorts.Contains(445) && LooksWindows(d), name: d.Hostname ?? "", wg: d.Info.GetValueOrDefault("Workgroup / domain")); })
+            .Where(x => x.ok && x.ip != null)
+            .OrderByDescending(x => dom != null && dom.Contains('.') && x.name.EndsWith("." + dom, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(x => x.wg != null && (x.wg.Equals(hint, StringComparison.OrdinalIgnoreCase) || x.wg.Equals(dom, StringComparison.OrdinalIgnoreCase)))
+            .ThenByDescending(x => x.d.OpenPorts.Contains(135))
+            .Select(x => x.ip!.ToString()).Take(3).ToList();
+    }
+
+    /// <summary>Reads one PC's model from Windows (asks for a login when none is remembered yet).</summary>
     private async Task GetWindowsModelAsync(Device d, bool askLogin)
     {
         bool self; IPAddress? ip;
@@ -1268,24 +1301,48 @@ public sealed class MainForm : Form
             if (r != DialogResult.OK || !await MakeReachableAsync(d)) return;
         }
         UseWaitCursor = true;
-        _stState.Text = $"Reading the model of {(self ? "this PC" : ip!.ToString())} (Windows)…";
+        var who = self ? "This PC" : ip!.ToString();
+        _stState.Text = $"Reading the model of {(self ? "this PC" : who)} from Windows…";
         try
         {
-            var info = await WmiReader.ReadAsync(ip?.ToString() ?? ".", _winLogin?.User, _winLogin?.Password, self, _lifetime.Token);
-            _engine.Store.Touch(d, info.ApplyTo);
-            _stState.Text = $"{(self ? "This PC" : ip!.ToString())}: {info.Model ?? "model not reported"}";
+            var session = new WindowsLoginSession(self ? null : _winLogin?.User, _winLogin?.Password, DomainHint(), _engine.Log);
+            var res = await WindowsReader.ReadAsync(ip?.ToString() ?? ".", self, session, _lifetime.Token);
+            _engine.Store.Touch(d, res.Info.ApplyTo);
+            _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
+            _stState.Text = $"{who}: {res.Info.Model ?? "model not reported"}";
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
+            var kind = ex is WinReadException w ? w.Kind : WinFail.Other;
+            _engine.Log($"Windows {who}: {ex.Message}");
             _stState.Text = "Could not read the Windows model: " + ex.Message.Split('\n')[0];
-            MessageBox.Show(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, $"{who}: {ex.Message}.\n\n{WindowsAdvice(kind, single: true)}", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally { UseWaitCursor = false; }
     }
 
+    private const string WmiFirewallGpo =
+        "On the domain controller (Group Policy Management), in a policy linked to the PCs:\n" +
+        "Computer Configuration › Policies › Windows Settings › Security Settings › Windows Defender Firewall with Advanced Security › " +
+        "Inbound Rules › New Rule › Predefined: \"Windows Management Instrumentation (WMI)\" (or \"File and Printer Sharing\", port 445) › tick all › Allow the connection.\n" +
+        "Then run gpupdate /force on the PCs (or restart them) and try again.";
+
+    /// <summary>What to do about a failure, in plain words.</summary>
+    private static string WindowsAdvice(WinFail kind, bool single) => kind switch
+    {
+        WinFail.Closed or WinFail.Blocked => (single
+            ? "Its firewall blocks remote management. On that PC: Windows Defender Firewall › Allow an app › tick \"Windows Management Instrumentation (WMI)\" (Domain).\n\nFor many PCs at once: "
+            : "To read them, allow WMI in their firewall once. ") + WmiFirewallGpo,
+        WinFail.BadLogin => "Check the user name and password. In a domain, write the user as DOMAIN\\user (e.g. ALMADA\\administrator) or user@domain.local.",
+        WinFail.AccessDenied or WinFail.NotAdmin => "Use an account that is administrator on that PC: a domain admin (DOMAIN\\user or user@domain.local), " +
+            "or the PC's own Administrator (PCNAME\\Administrator; Windows 10/11 block other local admin accounts remotely).",
+        _ => "Details are in the Log tab.",
+    };
+
     /// <summary>
     /// "Get models": every device on the list, on every range. Devices on other subnets get a temporary IP in their range
-    /// (one per range), then each device is asked without a password; Windows PCs also over WMI when a login is given.
+    /// (one per range), then each device is asked without a password; Windows PCs also with a Windows login when one is given.
     /// </summary>
     private async Task GetModelsForAllAsync()
     {
@@ -1304,6 +1361,11 @@ public sealed class MainForm : Form
         _stProgress.Visible = true;
         int done = 0, found = 0, windowsOk = 0;
         var errors = new List<string>();
+        var winFails = new Dictionary<WinFail, List<string>>();
+        var session = opt.Login != null ? new WindowsLoginSession(opt.Login.User, opt.Login.Password, DomainHint(), _engine.Log) { AllowServiceStart = opt.StartRemoteRegistry } : null;
+        var selfSession = new WindowsLoginSession(null, null, null, _engine.Log);
+        if (session != null)
+            _engine.Log("Get models: Windows login " + (session.User == null ? "= this PC's own login" : $"\"{session.User}\", trying {string.Join(", ", session.Spellings.Select(s => $"\"{s}\""))}"));
         try
         {
             // 1) one temporary IP per other range
@@ -1320,7 +1382,18 @@ public sealed class MainForm : Form
                 }
             }
 
-            // 2) ask every reachable device (8 at a time)
+            // 2) check the Windows login once, on a domain PC, before using it on dozens of PCs
+            if (session?.User != null)
+            {
+                _stState.Text = "Checking the Windows login…";
+                foreach (var host in LoginCheckHosts(session.User))
+                {
+                    try { if (await session.CheckAsync(host, ct)) break; }
+                    catch (WinReadException ex) { _engine.Log($"Windows login: could not check it on {host} ({ex.Message})"); }
+                }
+            }
+
+            // 3) ask every reachable device (8 at a time)
             using var sem = new SemaphoreSlim(8);
             var targets = all.Where(d => { lock (d) return d.Reachable || d.IsSelf; }).ToList();
             await Task.WhenAll(targets.Select(async d =>
@@ -1328,21 +1401,28 @@ public sealed class MainForm : Form
                 await sem.WaitAsync(ct);
                 try
                 {
-                    bool self, isWin; string? before;
-                    lock (d) { self = d.IsSelf; before = d.Model; }
+                    bool self, isWin; IPAddress? ip;
+                    lock (d) { self = d.IsSelf; ip = d.Ip; }
                     if (!self) await Task.Run(() => _engine.CheckPortsAsync(d, ct), ct);
                     lock (d) isWin = LooksWindows(d);
-                    if (isWin && (self || opt.Login != null))
+                    if (isWin && (self || session != null))
                     {
+                        var who = self ? "This PC" : ip!.ToString();
                         try
                         {
-                            var ip = d.Ip?.ToString() ?? ".";
-                            var info = await WmiReader.ReadAsync(ip, opt.Login?.User, opt.Login?.Password, self, ct);
-                            _engine.Store.Touch(d, info.ApplyTo);
+                            var res = await WindowsReader.ReadAsync(ip?.ToString() ?? ".", self, self ? selfSession : session!, ct);
+                            _engine.Store.Touch(d, res.Info.ApplyTo);
                             Interlocked.Increment(ref windowsOk);
+                            _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
                         }
                         catch (OperationCanceledException) { throw; }
-                        catch (Exception ex) { lock (errors) errors.Add($"{d.Ip}: {ex.Message.Split('\n')[0]}"); }
+                        catch (Exception ex)
+                        {
+                            var kind = ex is WinReadException w ? w.Kind : WinFail.Other;
+                            lock (winFails) { if (!winFails.TryGetValue(kind, out var l)) winFails[kind] = l = new(); l.Add(who); }
+                            // closed ports and "skipped" are summed up once at the end instead of one line per PC
+                            if (kind != WinFail.Closed && !ex.Message.StartsWith("skipped")) _engine.Log($"Windows {who}: {ex.Message}");
+                        }
                     }
                     lock (d) if (d.Model != null) Interlocked.Increment(ref found);
                 }
@@ -1353,10 +1433,13 @@ public sealed class MainForm : Form
                     if (!IsDisposed) _stState.Text = $"Getting models… {n}/{targets.Count}";
                 }
             }));
-            _stState.Text = $"Models: {found} of {targets.Count} devices have a model" + (windowsOk > 0 ? $" ({windowsOk} Windows PCs read)" : "") +
-                            (errors.Count > 0 ? $"  ·  {errors.Count} problem(s), see the Log tab" : "");
             foreach (var e in errors) _engine.Log("Get models: " + e);
+            var winFailed = winFails.Values.Sum(v => v.Count);
+            _stState.Text = $"Models: {found} of {targets.Count} devices have a model" +
+                            (windowsOk + winFailed > 0 ? $"  ·  Windows PCs: {windowsOk} read, {winFailed} not" : "") +
+                            (errors.Count + winFailed > 0 ? "  ·  details in the Log tab" : "");
             _stExport.Visible = true;
+            if (winFailed > 0) ShowWindowsSummary(windowsOk, winFails, session?.StopReason);
         }
         catch (OperationCanceledException) { _stState.Text = $"Get models stopped ({done} done)."; }
         finally
@@ -1365,6 +1448,32 @@ public sealed class MainForm : Form
             _btnModels.Text = "Get models";
             _stProgress.Visible = _scanCts != null;
         }
+    }
+
+    /// <summary>One clear summary of the Windows part of "Get models": what worked, what blocked it, and how to fix it.</summary>
+    private void ShowWindowsSummary(int ok, Dictionary<WinFail, List<string>> fails, string? stopReason)
+    {
+        List<string> Get(params WinFail[] k) => k.SelectMany(x => fails.GetValueOrDefault(x) ?? new()).ToList();
+        string Ips(List<string> l) => string.Join(", ", l.Take(12)) + (l.Count > 12 ? $" … (+{l.Count - 12})" : "");
+        var closed = Get(WinFail.Closed);
+        var blocked = Get(WinFail.Blocked);
+        var denied = Get(WinFail.AccessDenied, WinFail.NotAdmin);
+        var bad = Get(WinFail.BadLogin);
+        var otherFail = Get(WinFail.Other);
+        var lines = new List<string> { $"Windows PCs read: {ok}." };
+        if (closed.Count > 0) lines.Add($"{closed.Count} PC(s) block every remote-management port (135 and 445 closed): {Ips(closed)}");
+        if (blocked.Count > 0) lines.Add($"{blocked.Count} PC(s) answer, but their firewall blocks WMI: {Ips(blocked)}");
+        if (denied.Count > 0) lines.Add($"{denied.Count} PC(s) refused the login (not an administrator there?): {Ips(denied)}");
+        if (bad.Count > 0) lines.Add(stopReason ?? $"{bad.Count} PC(s): wrong user name or password: {Ips(bad)}");
+        if (otherFail.Count > 0) lines.Add($"{otherFail.Count} PC(s) failed for another reason: {Ips(otherFail)}");
+        foreach (var l in lines) _engine.Log("Windows summary: " + l);
+
+        var advice = new List<string>();
+        if (stopReason != null || bad.Count > 0) advice.Add(WindowsAdvice(WinFail.BadLogin, false));
+        else if (denied.Count > 0) advice.Add(WindowsAdvice(WinFail.AccessDenied, false));
+        if (closed.Count + blocked.Count > 0) advice.Add(WindowsAdvice(WinFail.Blocked, false));
+        MessageBox.Show(this, string.Join("\n", lines) + "\n\n" + string.Join("\n\n", advice) + "\n\nThe result for each PC is in the Log tab.",
+            AppInfo.Name + " – Windows models", MessageBoxButtons.OK, ok == 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
     }
 
     private void OnClosing(object? sender, FormClosingEventArgs e)

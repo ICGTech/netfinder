@@ -346,7 +346,8 @@ public sealed class NetworkEngine : IDisposable
         {
             try { await en.EnrichAsync(device, ectx, ct); }
             catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { Log($"{en.Name}: {ex.Message}"); }
+            catch (SocketException) { } // unreachable network / host: simply no answer
+            catch (Exception ex) { Log($"{en.Name} ({ip}): {ex.Message}"); }
         }
     }
 

@@ -13,6 +13,11 @@ namespace NetFinder.Core.Classifiers;
 /// </summary>
 public sealed class BuiltInClassifier : IDeviceClassifier
 {
+    // Network cards of PCs. A PC maker's MAC alone is weak: Dell / HP / Lenovo also make servers (iDRAC, iLO), thin clients, switches…
+    private const string PcMakers = @"intel corporate|realtek|dell inc|lenovo|micro-star|msi|gigabyte|giga-byte|asrock|liteon|azurewave|hon hai|foxconn|quanta|wistron|compal|pegatron|elitegroup|clevo|chicony|hewlett packard$|hp inc";
+    private static readonly Regex PcMakerRx = new(PcMakers, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly int[] WindowsPorts = { 135, 139, 445, 3389, 5357, 5985 };
+
     // (regex on MAC vendor, type, points)
     private static readonly (Regex Rx, string Type, int Pts)[] VendorRules = Build(new (string, string, int)[]
     {
@@ -32,7 +37,7 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         (@"sony interactive|nintendo|microsoft.*xbox", T.Console, 70),
         (@"raspberry pi", T.Linux, 60),
         (@"espressif|tuya|shelly|sonoff|itead|broadlink|lumi united|signify|philips lighting|ezviz|wiz connected|ring llc|nest labs|ecobee|amazon technologies", T.Iot, 55),
-        (@"intel corporate|realtek|dell inc|lenovo|micro-star|msi|gigabyte|giga-byte|asrock|liteon|azurewave|hon hai|foxconn|quanta|wistron|compal|pegatron|elitegroup|clevo|chicony|hewlett packard$|hp inc", T.WindowsPc, 25),
+        (PcMakers, T.WindowsPc, 25),
         (@"vmware|xensource|parallels|qemu|virtualbox|pcs systemtechnik", T.Vm, 75),
         (@"apc|american power|eaton|schneider|vertiv|emerson network|riello|cyberpower", T.Ups, 60),
         (@"zkteco|suprema|hid global|anviz|zk ?tech", T.AccessControl, 80),
@@ -73,6 +78,7 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         (@"access point|unifi ap|uap-|eap\d|instant on ap|airos|wap\d", T.AccessPoint, 75),
         (@"routeros|rosssh|mikrotik|openwrt|dd-wrt|fritz!box|router|gateway|igd|internetgatewaydevice|wanipconnection|wancommoninterface|edgeos|vyos|pfsense|opnsense", T.Router, 65),
         (@"fortigate|fortios|pan-os|sonicwall|sophos|watchguard|checkpoint|asa\d", T.Firewall, 80),
+        (@"idrac|integrated dell remote|integrated lights.?out|\bilo ?\d|xclarity|\bimm2?\b|megarac|supermicro|\bipmi\b|\bbmc\b|openmanage", T.Linux, 85),
         (@"synology|diskstation|dsm|qnap|qts|truenas|freenas|readynas|my ?cloud|unraid", T.Nas, 85),
         (@"macbook|imac|macmini|mac mini|macpro|mac pro|mac studio|mac\d+,\d", T.Mac, 85),
         (@"iphone|ipad|ipod", T.IPhone, 85),
@@ -154,6 +160,14 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         // Apple: refine iPhone vs Mac
         if (d.Vendor?.Contains("Apple", StringComparison.OrdinalIgnoreCase) == true && (d.OpenPorts.Contains(22) || d.OpenPorts.Contains(445) || d.Services.Contains("_ssh._tcp")))
             s.Add(T.Mac, 40, "Apple + file sharing/SSH");
+
+        // PC maker's MAC, but only web / SSH ports and none of Windows' own: a server's management card (iDRAC, iLO), an appliance…
+        if (PcMakerRx.IsMatch(d.Vendor ?? "") && d.PortsCheckedAt != null && d.OpenPorts.Count > 0 &&
+            !d.OpenPorts.Any(p => WindowsPorts.Contains(p)) && d.OpenPorts.Any(p => p is 22 or 23 or 80 or 443 or 8000 or 8080 or 8443))
+        {
+            s.Add(T.WindowsPc, -25, "no Windows ports (135/445/3389)");
+            s.Add(T.Linux, 20, "PC maker, but only web/SSH ports (server management card or appliance?)");
+        }
 
         if (d.Info.TryGetValue("TTL", out var ttl))
         {

@@ -28,6 +28,15 @@ public sealed class Adapter
     /// <summary>The pcap device, kept as object so the model has no hard dependency on SharpPcap.</summary>
     public object? PcapDevice { get; set; }
 
+    /// <summary>
+    /// A host-only virtual network of Hyper-V, VMware, VirtualBox, WSL or Docker on this PC (no gateway): only this PC's own
+    /// virtual machines live there, so "All connected adapters" skips it. A Hyper-V external switch (with a gateway) is the real LAN and stays.
+    /// </summary>
+    public bool IsHostOnlyVirtual =>
+        Gateways.Count == 0 && System.Text.RegularExpressions.Regex.IsMatch(Description + " | " + FriendlyName,
+            @"hyper-v virtual ethernet|vmware virtual ethernet|virtualbox host-only|vethernet|\bvmnet\d|docker|\bwsl\b|default switch|loopback",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
     public bool OwnsSubnetOf(IPAddress ip) => Addresses.Any(a => a.Subnet.Contains(ip));
     public AdapterAddress? AddressFor(IPAddress ip) => Addresses.FirstOrDefault(a => a.Subnet.Contains(ip));
     public uint PrimaryIp => Addresses.Count > 0 ? Ip4.ToUInt(Addresses[0].Ip) : 0;

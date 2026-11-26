@@ -4,6 +4,15 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.8
+- Windows models work in a domain: the user can be ALMADA\admin, admin@almada.local or almada.local\admin.
+- If WMI is blocked by the firewall, the PC is read over file sharing (port 445) instead.
+- A wrong password stops after one try, so the account is not locked.
+- The Log tab shows the result for every PC, and a short summary at the end.
+- Dell/HP devices with only web ports are no longer shown as "Windows PC".
+- Fixed names showing as "*" and wrong models like "ProductAgent1.0".
+- Virtual network cards (Hyper-V, VMware) are no longer scanned by default.
+
 ## 1.1.7
 - The update bar no longer has a "What's new" link.
 - After an update, NetFinder shows a short list of what changed.

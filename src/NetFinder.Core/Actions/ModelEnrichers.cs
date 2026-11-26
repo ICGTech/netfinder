@@ -132,6 +132,14 @@ public sealed class UpnpEnricher : IDeviceEnricher
         ctx.Engine.Store.Touch(device, d =>
         {
             d.Info["UPnP description URL"] = loc;
+            // on a Windows PC the UPnP answer comes from some program on it (media sharing, a vendor agent…): it names the program, not the PC
+            var pc = d.OpenPorts.Contains(135) || d.OpenPorts.Contains(3389) || d.Info.ContainsKey("Windows");
+            if (pc)
+            {
+                if (desc.FriendlyName != null) d.Info["UPnP name"] = desc.FriendlyName;
+                if (desc.Model != null) d.Info["UPnP model"] = desc.Model;
+                return;
+            }
             if (desc.FriendlyName != null) { d.Info["UPnP name"] = desc.FriendlyName; d.Hostname ??= desc.FriendlyName; }
             if (desc.Manufacturer != null) { d.Info["Manufacturer"] = desc.Manufacturer; d.Vendor ??= desc.Manufacturer; }
             if (desc.ModelDescription != null) d.Info["UPnP model description"] = desc.ModelDescription;

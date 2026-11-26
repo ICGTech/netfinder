@@ -46,7 +46,7 @@ public sealed class PingTcpSweep : IActiveScanner
         var alive = new ConcurrentBag<uint>();
         var tcpAlive = new ConcurrentDictionary<uint, byte>();
         var todo = targets.Where(t => ctx.Store.FindByIp(Ip4.FromUInt(t)) == null).ToList();
-        ctx.Log($"Ping sweep: {todo.Count} addresses");
+        ctx.Log($"Ping sweep: {todo.Count} addresses not found by ARP");
         var done = 0;
         using (var sem = new SemaphoreSlim(256))
         {
@@ -121,7 +121,7 @@ public sealed class PingTcpSweep : IActiveScanner
             if (d == null) ctx.Store.ObserveIp(ip, how, ctx.Adapters.FirstOrDefault(a => a.OwnsSubnetOf(ip)));
             else ctx.Store.Touch(d, x => x.Sources.Add(how));
         }
-        ctx.Log($"Ping/TCP sweep: {alive.Count} alive");
+        ctx.Log(alive.IsEmpty ? "Ping/TCP sweep: no extra devices (ARP already found every device that answers)" : $"Ping/TCP sweep: {alive.Count} more device(s) answered");
     }
 
     private static bool IsLocal(ScanContext ctx, uint ip) => ctx.Adapters.Any(a => a.Addresses.Any(x => x.Subnet.Contains(ip)));

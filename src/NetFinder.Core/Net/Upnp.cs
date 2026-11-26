@@ -8,6 +8,10 @@ namespace NetFinder.Core.Net;
 public sealed record UpnpDescription(string? FriendlyName, string? Manufacturer, string? ModelName, string? ModelNumber, string? ModelDescription,
     string? SerialNumber, string? DeviceType, string? PresentationUrl)
 {
+    private static readonly System.Text.RegularExpressions.Regex SoftwareRx = new(
+        @"windows media|media player|productagent|plex media|serviio|twonky|universal media server|kodi|vlc|jriver|foobar|emby|jellyfin|subsonic|^1-00-00$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
     /// <summary>"Archer C6 v2.0", "DS918+"… or null when the description has no useful model.</summary>
     public string? Model
     {
@@ -15,8 +19,8 @@ public sealed record UpnpDescription(string? FriendlyName, string? Manufacturer,
         {
             var name = ModelName?.Trim();
             var number = ModelNumber?.Trim();
-            // Windows advertises its media sharing, not the PC model
-            if (name != null && name.Contains("Windows Media", StringComparison.OrdinalIgnoreCase)) return null;
+            // Software on a PC advertises itself, not the PC model: Windows media sharing, HP's "ProductAgent1.0 1-00-00"…
+            if (SoftwareRx.IsMatch(name ?? "") || SoftwareRx.IsMatch(number ?? "")) return null;
             if (string.IsNullOrEmpty(name)) return string.IsNullOrEmpty(number) ? null : number;
             if (string.IsNullOrEmpty(number) || name.Contains(number, StringComparison.OrdinalIgnoreCase)) return name;
             if (number.Contains(name, StringComparison.OrdinalIgnoreCase)) return number.Length <= 40 ? number : name;

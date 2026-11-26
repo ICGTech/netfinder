@@ -40,7 +40,7 @@ internal static class Dialogs
             Left = 12, Top = 10, Width = 436, Height = 52,
         };
         var lu = new Label { Text = "User:", Left = 12, Top = 72, Width = 80 };
-        var tu = new TextBox { Left = 100, Top = 69, Width = 348, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\user" };
+        var tu = new TextBox { Left = 100, Top = 69, Width = 348, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\user  or  user@domain.local" };
         var lp = new Label { Text = "Password:", Left = 12, Top = 104, Width = 80 };
         var tp = new TextBox { Left = 100, Top = 101, Width = 348, UseSystemPasswordChar = true, Text = current?.Password ?? "" };
         var note = new Label { Text = "Kept only while NetFinder is open. Never saved to disk.", Left = 100, Top = 132, Width = 348, ForeColor = Theme.Muted, Font = Theme.Small };
@@ -52,7 +52,7 @@ internal static class Dialogs
         return f.ShowDialog(owner) == DialogResult.OK ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null;
     }
 
-    public sealed record ModelsOptions(bool OtherSubnets, WindowsLogin? Login);
+    public sealed record ModelsOptions(bool OtherSubnets, WindowsLogin? Login, bool StartRemoteRegistry);
 
     /// <summary>Options for "Get models" on the whole list.</summary>
     public static ModelsOptions? AskModelsOptions(IWin32Window owner, int devices, int otherSubnetDevices, int windowsPcs, WindowsLogin? current)
@@ -60,7 +60,7 @@ internal static class Dialogs
         using var f = new Form
         {
             Text = "Get the model of every device", AutoScaleDimensions = new SizeF(96F, 96F), AutoScaleMode = AutoScaleMode.Dpi, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
-            MinimizeBox = false, MaximizeBox = false, ClientSize = new Size(520, 330), Font = Theme.Base, ShowInTaskbar = false,
+            MinimizeBox = false, MaximizeBox = false, ClientSize = new Size(520, 384), Font = Theme.Base, ShowInTaskbar = false,
         };
         var head = new Label
         {
@@ -72,23 +72,28 @@ internal static class Dialogs
             Text = $"Include the {otherSubnetDevices} devices on other IP ranges (adds a temporary IP on this PC's network card for each range; removed when NetFinder closes)",
             Left = 12, Top = 52, Width = 496, Height = 44, Checked = otherSubnetDevices > 0, Enabled = otherSubnetDevices > 0,
         };
-        var winBox = new GroupBox { Text = $"Windows PCs ({windowsPcs} found): admin login to read model, serial, CPU, RAM (optional)", Left = 12, Top = 102, Width = 496, Height = 150 };
+        var winBox = new GroupBox { Text = $"Windows PCs ({windowsPcs} found): admin login to read model, serial, CPU, RAM (optional)", Left = 12, Top = 102, Width = 496, Height = 204 };
         var useWin = new CheckBox { Text = "Use a Windows login", Left = 12, Top = 24, Width = 300, Checked = current != null || windowsPcs > 0 };
         var lu = new Label { Text = "User:", Left = 12, Top = 56, Width = 80 };
-        var tu = new TextBox { Left = 96, Top = 53, Width = 380, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\admin   (empty = your own Windows login)" };
+        var tu = new TextBox { Left = 96, Top = 53, Width = 380, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\admin  or  admin@domain.local   (empty = your own login)" };
         var lp = new Label { Text = "Password:", Left = 12, Top = 88, Width = 80 };
         var tp = new TextBox { Left = 96, Top = 85, Width = 380, UseSystemPasswordChar = true, Text = current?.Password ?? "" };
         var note = new Label { Text = "Kept only while NetFinder is open. Never saved to disk.", Left = 96, Top = 114, Width = 380, ForeColor = Theme.Muted, Font = Theme.Small };
-        winBox.Controls.AddRange(new Control[] { useWin, lu, tu, lp, tp, note });
-        void Sync() { tu.Enabled = tp.Enabled = useWin.Checked; }
+        var reg = new CheckBox
+        {
+            Text = "If WMI is blocked by the PC's firewall: read it over file sharing (port 445), starting the Remote Registry service for a moment when it is off (put back as it was right after)",
+            Left = 12, Top = 136, Width = 470, Height = 58, Checked = true,
+        };
+        winBox.Controls.AddRange(new Control[] { useWin, lu, tu, lp, tp, note, reg });
+        void Sync() { tu.Enabled = tp.Enabled = reg.Enabled = useWin.Checked; }
         useWin.CheckedChanged += (_, _) => Sync();
         Sync();
-        var ok = new Button { Text = "Start", DialogResult = DialogResult.OK, Left = 322, Top = 284, Width = 100, Font = Theme.Bold };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 428, Top = 284, Width = 80 };
+        var ok = new Button { Text = "Start", DialogResult = DialogResult.OK, Left = 322, Top = 338, Width = 100, Font = Theme.Bold };
+        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 428, Top = 338, Width = 80 };
         f.Controls.AddRange(new Control[] { head, other, winBox, ok, cancel });
         f.AcceptButton = ok; f.CancelButton = cancel;
         if (f.ShowDialog(owner) != DialogResult.OK) return null;
-        return new ModelsOptions(other.Checked, useWin.Checked ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null);
+        return new ModelsOptions(other.Checked, useWin.Checked ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null, reg.Checked);
     }
 
     /// <summary>Shows the About box. Returns true when the user pressed "Check for updates".</summary>
