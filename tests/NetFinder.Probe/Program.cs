@@ -60,7 +60,7 @@ if (args.Length >= 2 && args[0] == "export")
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.31"), "Ping", null, d => { d.OfferModel("HP LaserJet Pro M404dn", "IPP", 85); d.Info["Serial number"] = "PHBQB12345"; d.OpenPorts.Add(9100); d.Hostname = "Printer <2nd floor> & \"A\""; });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("192.168.5.11"), "NVR", null, d => { d.BehindNvr = "10.10.20.64"; d.Routed = false; d.Info["NVR channel"] = "10.10.20.64  channel 1"; d.Info["Status on NVR"] = "Online"; d.OfferModel("DS-2CD1043G0-I", "NVR", 90); d.Hostname = "بوابة"; });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.64"), "Ping", null, d => { d.Info["NVR cameras"] = "8"; d.OfferModel("DS-7608NI-K2/8P", "Hikvision API", 90); });
-    e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.50"), "Ping", null, d => { d.Info["Windows"] = "Windows 11 Pro (10.0.22631)"; d.Info["CPU"] = "Intel(R) Core(TM) i5-11500 @ 2.70GHz"; d.Info["RAM"] = "16 GB"; d.Info["Disk"] = "SAMSUNG MZVLB256HAHQ (NVMe SSD, 256 GB)  +  ST1000DM010 (HDD, 1 TB)"; d.Info["Drive C:"] = "238 GB (120 GB free)"; d.Info["Graphics"] = "Intel(R) UHD Graphics 750 (1 GB)"; d.OfferModel("Dell OptiPlex 7090", "Windows (WMI)", 100); d.Hostname = "ACC-PC1"; });
+    e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.50"), "Ping", null, d => { d.Info["Windows"] = "Windows 11 Pro (10.0.22631)"; d.Info["CPU"] = "Intel(R) Core(TM) i5-11500 @ 2.70GHz"; d.Info["RAM"] = "16 GB"; d.Info["Disk"] = "SAMSUNG MZVLB256HAHQ (NVMe SSD, 256 GB)  +  ST1000DM010 (HDD, 1 TB)"; d.Info["Drives"] = "C: 238 GB (120 GB free)  +  D: 932 GB (610 GB free)"; d.Info["Graphics"] = "Intel(R) UHD Graphics 750 (1 GB)"; d.OfferModel("Dell OptiPlex 7090", "Windows (WMI)", 100); d.Hostname = "ACC-PC1"; });
     foreach (var ext in new[] { "xlsx", "csv", "html" })
         NetFinder.Core.Export.Exporter.Save(Path.Combine(args[1], "devices." + ext), e.Store.All, "Network devices – test");
     Console.WriteLine("EXPORTED");
@@ -203,7 +203,7 @@ if (args.Length >= 1 && args[0] == "selftest")
         var merged = NetFinder.Core.Net.HardwareText.MergeDisks(
             new() { E("SAMSUNG MZ7LN256HAJQ-000H1", null, null, 0) },
             new() { E("SAMSUNG MZ7LN256HAJQ-000", null, null, 0), E("ST1000DM010-2EP1", null, null, 0) });
-        Check("merge ssd+hdd", string.Join(" | ", merged.Select(NetFinder.Core.Net.HardwareText.Disk)), "SAMSUNG MZ7LN256HAJQ-000H1 (SSD) | ST1000DM010-2EP1 (HDD)");
+        Check("merge ssd+hdd", string.Join(" | ", merged.Select(NetFinder.Core.Net.HardwareText.Disk)), "SAMSUNG MZ7LN256HAJQ-000H1 (SSD, 256 GB) | ST1000DM010-2EP1 (HDD, 1 TB)");
         // WMI: MSFT_PhysicalDisk + Win32_DiskDrive, two identical HDDs stay two
         merged = NetFinder.Core.Net.HardwareText.MergeDisks(
             new() { E("Samsung SSD 860 EVO 500GB", 4, 11, 500107862016), E("ST1000DM010-2EP102", 3, 11, 1000204886016), E("ST1000DM010-2EP102", 3, 11, 1000204886016) },
@@ -216,6 +216,18 @@ if (args.Length >= 1 && args[0] == "selftest")
             new() { E("Samsung SSD 860 EVO 500GB", null, null, 500105249280), E("TOSHIBA DT01ACA100", null, null, 1000204886016) });
         Check("merge adds missing hdd", string.Join(" | ", merged.Select(NetFinder.Core.Net.HardwareText.Disk)),
             "Samsung SSD 860 EVO 500GB (500 GB) | TOSHIBA DT01ACA100 (HDD, 1 TB)");
+        // disk sizes from the model name (the registry has none)
+        foreach (var (model, want) in new[] {
+            ("WD2002FYPS-12", "2 TB"), ("WDC WD10EZEX-08WN4A0", "1 TB"), ("WDC WD5000AAKX-08U6AA0", "500 GB"), ("WD20EZRZ-00Z5HB0", "2 TB"),
+            ("WDC WD3200AAJS-00L7A0", "320 GB"), ("WD100EFAX-68LHPN0", "10 TB"), ("ST1000DM010-2EP102", "1 TB"), ("ST500LM030-2E717D", "500 GB"),
+            ("ST3500418AS", "500 GB"), ("ST31000524AS", "1 TB"), ("TOSHIBA DT01ACA100", "1 TB"), ("TOSHIBA DT01ACA050", "500 GB"),
+            ("TOSHIBA HDWD120", "2 TB"), ("KINGSTON SA400S37480G", "480 GB"), ("KINGSTON SA400S37240G", "240 GB"), ("SAMSUNG MZ7LN256HAJQ-000H1", "256 GB"),
+            ("SAMSUNG MZVLB512HBJQ-000L7", "512 GB"), ("Samsung SSD 860 EVO 500GB", "500 GB"), ("CT500MX500SSD1", "500 GB"), ("WDS100T2B0A-00SM50", "1 TB"),
+            ("SK hynix HFS256G39TND-N210A", "256 GB"), ("INTEL SSDSC2KW256G8", "256 GB"), ("KBG40ZNS256G NVMe KIOXIA 256GB", "256 GB"),
+            ("SNV2S1000G", "1 TB"), ("VMware Virtual disk", ""), ("Generic Disk XYZ", "") })
+            Check("size from model " + model, NetFinder.Core.Net.HardwareText.DiskSize(NetFinder.Core.Net.HardwareText.SizeFromModel(model)), want);
+        Check("disk with model size", NetFinder.Core.Net.HardwareText.Disk("WD2002FYPS-12", "HDD", 0), "WD2002FYPS-12 (HDD, 2 TB)");
+        Check("disk real size wins", NetFinder.Core.Net.HardwareText.Disk("KINGSTON SA400S37480G", "SSD", 480103981056), "KINGSTON SA400S37480G (SSD, 480 GB)");
         // the Log tab's per-device filter
         var f = NetFinder.Core.Model.LogFilter.For("10.0.0.1", "64:00:6A:55:0E:5E", new[] { "madapc0165.almada.local", "*", null }, false)!;
         Check("log ip", f.IsMatch("21:27:14  Windows 10.0.0.1 (Dell): ports closed"), true);

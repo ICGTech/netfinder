@@ -1003,11 +1003,13 @@ public sealed class MainForm : Form
             lock (d)
             {
                 model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc;
-                hw = new[] { ("CPU", ""), ("RAM", " RAM"), ("Disk", ""), ("Drive C:", ""), ("Graphics", ""), ("Windows", "") }
+                hw = new[] { ("CPU", ""), ("RAM", " RAM"), ("Disk", ""), ("Drives", ""), ("Drive C:", ""), ("Graphics", ""), ("Windows", "") }
                     .Where(k => d.Info.ContainsKey(k.Item1))
                     .SelectMany(k => k.Item1 switch
                     {
                         "Drive C:" => new[] { "C: " + d.Info[k.Item1] },
+                        // each drive letter on its own line: "D: 1.8 TB (1.1 TB free)"
+                        "Drives" => SplitDisks(d.Info[k.Item1]).ToArray(),
                         // each disk on its own line
                         "Disk" => SplitDisks(d.Info[k.Item1]) is var disks && disks.Count > 1
                             ? disks.Select((x, i) => $"Disk {i + 1}: {x}").ToArray() : new[] { "Disk: " + d.Info[k.Item1] },
@@ -1128,6 +1130,8 @@ public sealed class MainForm : Form
             {
                 if (kv.Key == "Disk" && SplitDisks(kv.Value) is { Count: > 1 } disks)
                     for (var i = 0; i < disks.Count; i++) Add($"Disk {i + 1}", disks[i]);
+                else if (kv.Key == "Drives")
+                    foreach (var dr in SplitDisks(kv.Value)) Add("Drive " + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]);
                 else Add(kv.Key, kv.Value);
             }
         }
@@ -1376,7 +1380,7 @@ public sealed class MainForm : Form
             l.AddRange(disks.Count > 1 ? disks.Select((x, n) => $"Disk {n + 1}: {x}") : disks.Select(x => "Disk: " + x));
         }
         else l.Add("Disk: not reported");
-        if (i.DriveC != null) l.Add("C: " + i.DriveC);
+        if (i.Drives != null) l.AddRange(SplitDisks(i.Drives));
         if (i.Graphics != null) l.Add("Graphics: " + i.Graphics);
         return l.Count == 0 ? null : string.Join("  ·  ", l);
     }

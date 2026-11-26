@@ -10,7 +10,7 @@ namespace NetFinder;
 
 /// <summary>What Windows itself reports about a PC (WMI or Remote Registry).</summary>
 public sealed record PcInfo(string? Manufacturer, string? Model, string? Serial, string? ComputerName, string? Domain, string? Windows,
-    string? Cpu, long? RamBytes, string? LoggedInUser, string? Bios, string Via, string? Disks = null, string? DriveC = null, string? Graphics = null)
+    string? Cpu, long? RamBytes, string? LoggedInUser, string? Bios, string Via, string? Disks = null, string? Drives = null, string? Graphics = null)
 {
     /// <summary>Applies it to a device row (call inside DeviceStore.Touch).</summary>
     public void ApplyTo(Device d)
@@ -31,7 +31,7 @@ public sealed record PcInfo(string? Manufacturer, string? Model, string? Serial,
         if (Cpu != null) d.Info["CPU"] = Cpu;
         if (RamBytes is > 0) d.Info["RAM"] = $"{Math.Round(RamBytes.Value / 1073741824.0)} GB";
         if (Disks != null) d.Info["Disk"] = Disks;
-        if (DriveC != null) d.Info["Drive C:"] = DriveC;
+        if (Drives != null) { d.Info["Drives"] = Drives; d.Info.Remove("Drive C:"); }
         if (Graphics != null) d.Info["Graphics"] = Graphics;
         if (LoggedInUser != null) d.Info["Logged-in user"] = LoggedInUser;
         if (Bios != null) d.Info["BIOS"] = Bios;
@@ -286,19 +286,14 @@ public static class WindowsReader
             var cpu = One("Win32_Processor", false, "Name");
             var board = One("Win32_BaseBoard", false, "Manufacturer", "Product");
             if (cs.Count == 0 && os.Count == 0) throw new WinReadException(WinFail.Other, "WMI answered but returned nothing");
-            // disks, drive C: and graphics: extras, a failure here never fails the read
-            string? disks = null, driveC = null, gpus = null;
+            // disks, drives (C:, D:…) and graphics: extras, a failure here never fails the read
+            string? disks = null, drives = null, gpus = null;
             try { disks = WinHardware.Join(WinHardware.WmiDisks(host, local, opt)); } catch { }
-            try
-            {
-                var c = WinHardware.Rows(scope, "Win32_LogicalDisk WHERE DeviceID='C:'", "Size", "FreeSpace").FirstOrDefault();
-                if (c != null) driveC = WinHardware.Drive(WinHardware.Num(c["Size"]) ?? 0, WinHardware.Num(c["FreeSpace"]) ?? 0);
-            }
-            catch { }
+            try { drives = WinHardware.WmiDrives(scope); } catch { }
             try { gpus = WinHardware.JoinGpus(WinHardware.WmiGpus(scope)); } catch { }
             return new RawPc
             {
-                Disks = disks, DriveC = driveC, Graphics = gpus,
+                Disks = disks, Drives = drives, Graphics = gpus,
                 Maker = cs.GetValueOrDefault("Manufacturer"), Model = cs.GetValueOrDefault("Model"), ProductVersion = prod.GetValueOrDefault("Version"),
                 BoardMaker = board.GetValueOrDefault("Manufacturer"), BoardProduct = board.GetValueOrDefault("Product"),
                 Serial = Clean(bios.GetValueOrDefault("SerialNumber")) ?? Clean(prod.GetValueOrDefault("IdentifyingNumber")),
@@ -416,7 +411,7 @@ public static class WindowsReader
                 var view = new RemoteRegView(hklm);
                 try { raw.Disks = WinHardware.Join(WinHardware.Disks(view)); } catch { }
                 try { raw.Graphics = WinHardware.JoinGpus(WinHardware.Gpus(view)); } catch { }
-                raw.DriveC = WinHardware.DriveCOverSmb(host);
+                raw.Drives = WinHardware.DrivesOverSmb(host, view);
                 if (raw.Maker == null && raw.Model == null && raw.Windows == null)
                     throw new WinReadException(WinFail.AccessDenied, "the registry answered but could not be read");
                 return (raw.ToInfo("Remote Registry"), note);
@@ -466,7 +461,7 @@ public static class WindowsReader
     /// <summary>The raw values, turned into a readable model the same way for WMI and the registry.</summary>
     private sealed class RawPc
     {
-        public string? Maker, Model, ProductVersion, BoardMaker, BoardProduct, Serial, Name, Domain, Windows, Cpu, User, Bios, Disks, DriveC, Graphics;
+        public string? Maker, Model, ProductVersion, BoardMaker, BoardProduct, Serial, Name, Domain, Windows, Cpu, User, Bios, Disks, Drives, Graphics;
         public long? Ram;
 
         public PcInfo ToInfo(string via)
@@ -487,7 +482,7 @@ public static class WindowsReader
             var brand = maker?.Split(' ', ',')[0];
             if (brand is { Length: > 1 } && model != null && !model.StartsWith("Custom PC") && !model.Contains(brand, StringComparison.OrdinalIgnoreCase))
                 model = (brand.All(char.IsUpper) && brand.Length > 3 ? brand[0] + brand[1..].ToLowerInvariant() : brand) + " " + model;
-            return new PcInfo(maker, model, Serial, Name, Domain, Windows, Cpu is { } c ? Regex.Replace(c, @"\s+", " ").Trim() : null, Ram, User, Bios, via, Disks, DriveC, Graphics);
+            return new PcInfo(maker, model, Serial, Name, Domain, Windows, Cpu is { } c ? Regex.Replace(c, @"\s+", " ").Trim() : null, Ram, User, Bios, via, Disks, Drives, Graphics);
         }
     }
 }

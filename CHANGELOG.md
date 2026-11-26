@@ -4,6 +4,10 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.11
+- Every disk shows its size (also when the PC is read over port 445), for example "WD2002FYPS (HDD, 2 TB)".
+- All drive letters with size and free space: C:, D:, E:…, each on its own line.
+
 ## 1.1.10
 - Windows PCs: every hard disk is listed (SSD and HDD), each on its own line.
 - The Log tab shows only the lines about the selected device. Untick the box to see everything.

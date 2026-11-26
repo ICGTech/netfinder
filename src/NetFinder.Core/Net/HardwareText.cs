@@ -94,10 +94,56 @@ public static partial class HardwareText
         return CleanDiskName(Regex.Replace(id, @"^(ATA|NVMe)\s+", "", RegexOptions.IgnoreCase));
     }
 
-    /// <summary>"Samsung SSD 870 EVO 500GB (SSD, 500 GB)". Drops the size when the name already says it.</summary>
+    /// <summary>
+    /// A disk's size read from its model name, for when Windows gave none (the registry has no sizes): makers put the
+    /// capacity in the name ("WD2002FYPS" = 2 TB, "ST1000DM010" = 1 TB, "KINGSTON SA400S37480G" = 480 GB). 0 when unsure.
+    /// </summary>
+    public static long SizeFromModel(string model)
+    {
+        var m = Regex.Replace(model.ToUpperInvariant().Replace('_', ' '), @"\s+", " ").Trim();
+        m = Regex.Replace(m, @"^(ATA|NVME|SCSI) ", "");
+        const long G = 1_000_000_000, T = 1_000_000_000_000;
+        Match x;
+        // written out: "Samsung SSD 860 EVO 500GB", "Portable 1TB", "2 TB"
+        if ((x = Regex.Match(m, @"(?<![\w.])(\d{1,2}(?:\.\d)?) ?TB\b")).Success) return (long)(double.Parse(x.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) * T);
+        if ((x = Regex.Match(m, @"(?<![\w.])(\d{2,4}) ?GB\b")).Success) return long.Parse(x.Groups[1].Value) * G;
+        // Western Digital SSD: WDS500G2B0A = 500 GB, WDS100T2B0A = 1 TB
+        if ((x = Regex.Match(m, @"\bWDS(\d{3})([GT])")).Success) return x.Groups[2].Value == "G" ? long.Parse(x.Groups[1].Value) * G : long.Parse(x.Groups[1].Value) * T / 100;
+        // Western Digital disk: WD10EZEX = 1 TB, WD20EZRZ = 2 TB, WD5000AAKX = 500 GB, WD2002FYPS = 2 TB, WD100EFAX = 10 TB
+        if ((x = Regex.Match(m, @"^(?:WDC )?WD(\d{2,4})[A-Z]{2}")).Success)
+        {
+            var d = x.Groups[1].Value; var n = int.Parse(d);
+            if (d.Length == 2) return n * T / 10;
+            if (d.Length == 3) return n is >= 100 and <= 240 ? n * T / 10 : 0;
+            if (n % 100 == 0) return n / 10 * G;          // 5000 → 500 GB, 3200 → 320 GB
+            if (n % 1000 < 10) return n / 1000 * T;       // 1002 → 1 TB, 2002 → 2 TB, 4003 → 4 TB
+            return 0;
+        }
+        // Seagate: ST1000DM010 = 1000 GB, ST500LM030 = 500 GB; older ST3500418AS = 500 GB, ST31000524AS = 1000 GB
+        if ((x = Regex.Match(m, @"^ST(\d{3,5})[A-Z]{2}\d")).Success) return long.Parse(x.Groups[1].Value) * G;
+        if ((x = Regex.Match(m, @"^ST[39](\d{2,5})(\d{3})[A-Z]{1,3}\b")).Success) return long.Parse(x.Groups[1].Value) * G;
+        // Toshiba: DT01ACA100 = 1 TB, DT01ACA050 = 500 GB, MQ01ABD100 = 1 TB, HDWD120 = 2 TB
+        if ((x = Regex.Match(m, @"^(?:TOSHIBA )?(?:DT01ACA|MQ0\dAB[A-Z])(\d{3})\b")).Success) return long.Parse(x.Groups[1].Value) * T / 100;
+        if ((x = Regex.Match(m, @"^(?:TOSHIBA )?HDW[A-Z]1(\d)0\b")).Success) return long.Parse(x.Groups[1].Value) * T;
+        // Samsung OEM SSD: MZ7LN256HAJQ = 256 GB, MZVLB512HBJQ = 512 GB, MZVLW1T0 = 1 TB
+        if ((x = Regex.Match(m, @"^(?:SAMSUNG )?MZ[0-9A-Z]{3}(\d{3}|\dT\d)")).Success)
+            return x.Groups[1].Value.Contains('T') ? (x.Groups[1].Value[0] - '0') * T : long.Parse(x.Groups[1].Value) * G;
+        // Crucial CT500MX500SSD1 = 500 GB; SK hynix HFS256G… / HFM512G…; Intel SSDSC2KW256G8; Toshiba THNSN…256G…, KBG40ZNS256G
+        if ((x = Regex.Match(m, @"^(?:CRUCIAL )?CT(\d{3,4})(?:MX|BX|P\d|T\d)")).Success) return long.Parse(x.Groups[1].Value) * G;
+        if ((x = Regex.Match(m, @"^(?:SK ?HYNIX )?HF[SM](\d{3})G")).Success) return long.Parse(x.Groups[1].Value) * G;
+        if ((x = Regex.Match(m, @"^(?:INTEL )?SSD(?:SC|PE)\w{3}(\d{3})G")).Success) return long.Parse(x.Groups[1].Value) * G;
+        if ((x = Regex.Match(m, @"^(?:TOSHIBA |KIOXIA )?(?:THNSN\w|KBG\w{5})(\d{3})G")).Success) return long.Parse(x.Groups[1].Value) * G;
+        // ends in the size: KINGSTON SA400S37480G = 480 GB, SNV2S1000G = 1000 GB
+        if ((x = Regex.Match(m, @"(?:S37|[A-Z])(\d{3,4})G$")).Success) return long.Parse(x.Groups[1].Value) * G;
+        return 0;
+    }
+
+    /// <summary>"Samsung SSD 870 EVO 500GB (SSD, 500 GB)". With no size from Windows, the size in the model name is used.</summary>
     public static string Disk(string model, string? kind, long size)
     {
         model = Regex.Replace(model.Replace('_', ' '), @"\s+", " ").Trim();
+        // no size from Windows: the one in the model name, unless the name already shows it ("… 500GB")
+        if (size <= 0 && !Regex.IsMatch(model, @"\d ?[GT]B\b", RegexOptions.IgnoreCase)) size = SizeFromModel(model);
         var parts = new List<string>();
         if (kind != null && !model.Contains(kind, StringComparison.OrdinalIgnoreCase)) parts.Add(kind);
         var sz = DiskSize(size);

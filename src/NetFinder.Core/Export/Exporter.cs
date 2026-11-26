@@ -28,7 +28,7 @@ public static class Exporter
     public static readonly string[] Columns =
     {
         "Type", "IP address", "Name", "Model", "Vendor", "Manufacturer", "MAC", "Network", "Subnet", "Open ports", "Serial number",
-        "NVR / channel", "Camera status (NVR)", "Windows", "CPU", "RAM", "Disk", "Drive C:", "Graphics", "Logged-in user",
+        "NVR / channel", "Camera status (NVR)", "Windows", "CPU", "RAM", "Disk", "Drives", "Graphics", "Logged-in user",
         "Found via", "All IPs", "First seen", "Last seen",
     };
 
@@ -57,7 +57,7 @@ public static class Exporter
                     d.Info.GetValueOrDefault("CPU") ?? "",
                     d.Info.GetValueOrDefault("RAM") ?? "",
                     d.Info.GetValueOrDefault("Disk") ?? "",
-                    d.Info.GetValueOrDefault("Drive C:") ?? "",
+                    d.Info.GetValueOrDefault("Drives") ?? (d.Info.TryGetValue("Drive C:", out var dc) ? "C: " + dc : ""),
                     d.Info.GetValueOrDefault("Graphics") ?? "",
                     d.Info.GetValueOrDefault("Logged-in user") ?? "",
                     string.Join(" ", d.Sources),

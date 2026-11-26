@@ -225,11 +225,38 @@ internal static class WinHardware
     public static string? Drive(long size, long free) =>
         size <= 0 ? null : $"{HardwareText.MemorySize(size)} ({HardwareText.MemorySize(free)} free)";
 
-    /// <summary>Size and free space of C: over SMB (\\pc\C$), with the SMB login already open.</summary>
-    public static string? DriveCOverSmb(string host)
+    /// <summary>
+    /// Every drive letter of the PC with its size and free space, over SMB admin shares (\\pc\D$), with the SMB login already open.
+    /// The letters come from the registry (MountedDevices); a letter without an admin share (DVD, a USB stick seen once) is skipped.
+    /// </summary>
+    public static string? DrivesOverSmb(string host, IRegView? r)
     {
-        try { return GetDiskFreeSpaceEx($@"\\{host}\C$\", out _, out var total, out var free) ? Drive((long)total, (long)free) : null; }
-        catch { return null; }
+        var letters = new SortedSet<char> { 'C' };
+        try
+        {
+            if (r != null)
+                foreach (var n in r.ValueNames(@"SYSTEM\MountedDevices"))
+                    if (n.Length == 14 && n.StartsWith(@"\DosDevices\", StringComparison.OrdinalIgnoreCase) && n[13] == ':' && char.ToUpperInvariant(n[12]) is var l and >= 'C' and <= 'Z')
+                        letters.Add(l);
+        }
+        catch { }
+        var res = new List<string>();
+        foreach (var l in letters)
+        {
+            try { if (GetDiskFreeSpaceEx($@"\\{host}\{l}$\", out _, out var total, out var free) && Drive((long)total, (long)free) is { } t) res.Add($"{l}: {t}"); }
+            catch { }
+        }
+        return Join(res);
+    }
+
+    /// <summary>Every local hard-disk drive (C:, D:…) over WMI, with size and free space.</summary>
+    public static string? WmiDrives(ManagementScope scope)
+    {
+        var res = new List<string>();
+        foreach (var c in Rows(scope, "Win32_LogicalDisk WHERE DriveType=3", "DeviceID", "Size", "FreeSpace").OrderBy(c => Str(c.GetValueOrDefault("DeviceID"))))
+            if (Str(c.GetValueOrDefault("DeviceID")) is { } id && Drive(Num(c.GetValueOrDefault("Size")) ?? 0, Num(c.GetValueOrDefault("FreeSpace")) ?? 0) is { } t)
+                res.Add($"{id} {t}");
+        return Join(res);
     }
 
     public static string? Join(IEnumerable<string> items)
