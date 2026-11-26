@@ -18,6 +18,62 @@ internal static class Theme
     public static readonly Color Muted = Color.FromArgb(96, 96, 96);
     public static readonly Color Panel = Color.FromArgb(246, 248, 250);
 
+    // ── main window palette (light / dark). Dialogs keep the light colors above. ──
+    public static readonly Palette LightPalette = new(false,
+        Bg: Hex("F5F7FA"), Surface: Hex("FFFFFF"), Surface2: Hex("F8FAFC"), Border: Hex("E3E8EF"), Text: Hex("16202C"), Muted: Hex("5B6675"),
+        Accent: Hex("1B64DA"), AccentText: Hex("FFFFFF"), AccentSoft: Hex("E8F0FD"), AccentSoftText: Hex("124AA6"),
+        RowSelected: Hex("EEF4FE"), Hover: Hex("F2F5F9"), Good: Hex("146C40"), GoodSoft: Hex("E7F5EE"), Warn: Hex("8A4B00"), WarnSoft: Hex("FDF1E3"),
+        OtherRow: Hex("FFF8EE"), InputBg: Hex("FFFFFF"), Link: Hex("1B64DA"), Bar: Hex("E3E8EF"));
+
+    public static readonly Palette DarkPalette = new(true,
+        Bg: Hex("0E151D"), Surface: Hex("16212C"), Surface2: Hex("131C26"), Border: Hex("243242"), Text: Hex("E6EDF3"), Muted: Hex("9AA7B4"),
+        Accent: Hex("4C9AFF"), AccentText: Hex("0B1622"), AccentSoft: Hex("1A2940"), AccentSoftText: Hex("9CC7FF"),
+        RowSelected: Hex("1A2940"), Hover: Hex("1B2733"), Good: Hex("8FD3AE"), GoodSoft: Hex("173A2A"), Warn: Hex("F4BF75"), WarnSoft: Hex("3A2A14"),
+        OtherRow: Hex("241F17"), InputBg: Hex("0F1821"), Link: Hex("6CB0FF"), Bar: Hex("243242"));
+
+    /// <summary>The palette of the main window now.</summary>
+    public static Palette P { get; private set; } = LightPalette;
+    public static void SetDark(bool dark) => P = dark ? DarkPalette : LightPalette;
+
+    public static Color Hex(string h) => Color.FromArgb(Convert.ToInt32(h[..2], 16), Convert.ToInt32(h[2..4], 16), Convert.ToInt32(h[4..6], 16));
+
+    /// <summary>a blended toward b (t = 0 → a, 1 → b).</summary>
+    public static Color Mix(Color a, Color b, double t) =>
+        Color.FromArgb((int)Math.Round(a.R + (b.R - a.R) * t), (int)Math.Round(a.G + (b.G - a.G) * t), (int)Math.Round(a.B + (b.B - a.B) * t));
+
+    public static readonly Font Heading = new("Segoe UI Semibold", 14f);
+    public static readonly Font Section = new("Segoe UI Semibold", 7.75f);
+    public static readonly Font Big = new("Segoe UI Semibold", 12f);
+    public static readonly Font Header = new("Segoe UI", 9.75f);
+    public static readonly Font HeaderBold = new("Segoe UI Semibold", 9.75f);
+    public static readonly Font Mono = MonoFont(9.75f, FontStyle.Regular);
+    public static readonly Font MonoTitle = MonoFont(15f, FontStyle.Bold);
+
+    private static Font MonoFont(float size, FontStyle style)
+    {
+        var f = new Font("Cascadia Mono", size, style);
+        if (f.Name == "Cascadia Mono") return f;
+        f.Dispose();
+        return new Font("Consolas", size, style);
+    }
+
+    /// <summary>The color of a type's symbol on the tinted tile (lighter in dark mode so it stays readable).</summary>
+    public static Color TypeInk(string type) => P.Dark ? Mix(ForType(type), Color.White, 0.42) : ForType(type);
+
+    /// <summary>New-look type icon: a softly tinted rounded tile with the symbol in the type color.</summary>
+    public static void DrawTypeTile(Graphics g, Rectangle r, string type, Color background)
+    {
+        var smooth = g.SmoothingMode;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var path = RoundedRect(r, Math.Max(3, r.Width / 4)))
+        using (var b = new SolidBrush(Mix(background, ForType(type), P.Dark ? 0.24 : 0.12)))
+            g.FillPath(b, path);
+        g.SmoothingMode = smooth;
+        var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
+        var hasGlyph = TypeGlyphs.TryGetValue(type, out var glyph);
+        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * 0.86), hasGlyph), r, TypeInk(type), flags);
+    }
+
     private static readonly Dictionary<string, Color> TypeColors = new()
     {
         [DeviceTypes.Router] = Color.FromArgb(0, 120, 212),
@@ -115,7 +171,7 @@ internal static class Theme
         return bmp;
     }
 
-    private static System.Drawing.Drawing2D.GraphicsPath RoundedRect(Rectangle r, int radius)
+    public static System.Drawing.Drawing2D.GraphicsPath RoundedRect(Rectangle r, int radius)
     {
         var d = radius * 2;
         var p = new System.Drawing.Drawing2D.GraphicsPath();
@@ -141,3 +197,8 @@ internal static class Theme
 
     private static byte[] ReadAll(Stream s) { using var m = new MemoryStream(); s.CopyTo(m); return m.ToArray(); }
 }
+
+/// <summary>The colors of the main window in one theme.</summary>
+internal sealed record Palette(bool Dark, Color Bg, Color Surface, Color Surface2, Color Border, Color Text, Color Muted,
+    Color Accent, Color AccentText, Color AccentSoft, Color AccentSoftText, Color RowSelected, Color Hover,
+    Color Good, Color GoodSoft, Color Warn, Color WarnSoft, Color OtherRow, Color InputBg, Color Link, Color Bar);
