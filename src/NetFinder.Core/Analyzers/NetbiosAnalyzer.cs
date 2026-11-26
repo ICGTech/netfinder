@@ -41,7 +41,12 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
             if (suffix is not (0x00 or 0x20)) name = null;
         }
         if (name == "*" || name?.Contains("__MSBROWSE__") == true) name = null;
-        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(group)) return;
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(group))
+        {
+            // still a live device, even when the packet names something else (a domain role, "*"…)
+            if (f.SrcPort == 137 || f.SrcPort == 138) ctx.Store.Observe(f.SrcMac, "NetBIOS", ctx.Adapter, f.SrcIp);
+            return;
+        }
         ctx.Store.Observe(f.SrcMac, "NetBIOS", ctx.Adapter, f.SrcIp, d =>
         {
             if (!string.IsNullOrWhiteSpace(name))
