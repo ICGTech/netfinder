@@ -33,6 +33,9 @@ public sealed partial class WebTitleEnricher : IDeviceEnricher
             {
                 using var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
                 var server = resp.Headers.Server.ToString();
+                // Basic/Digest login realm often names the product ("TP-LINK Wireless N Router WR840N")
+                var realm = resp.Headers.WwwAuthenticate.Select(h => h.Parameter ?? "").Select(pr => Regex.Match(pr, "realm=\"([^\"]{2,80})\"", RegexOptions.IgnoreCase))
+                    .Where(m2 => m2.Success).Select(m2 => m2.Groups[1].Value).FirstOrDefault();
                 var body = await ReadSome(resp, ct);
                 var m = TitleRx().Match(body);
                 var title = m.Success ? WebUtility.HtmlDecode(m.Groups[1].Value).Trim() : null;
@@ -40,7 +43,9 @@ public sealed partial class WebTitleEnricher : IDeviceEnricher
                 ctx.Engine.Store.Touch(device, d =>
                 {
                     d.PortInfo[p] = info;
-                    if (!string.IsNullOrEmpty(title) && d.Model == null && title.Length < 60) d.Info["Web page title"] = title;
+                    if (!string.IsNullOrEmpty(title) && title.Length < 60) d.Info["Web page title"] = title;
+                    if (!string.IsNullOrEmpty(server)) d.Info["Web server"] = server;
+                    if (realm != null) d.Info["Web login realm"] = realm;
                 });
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

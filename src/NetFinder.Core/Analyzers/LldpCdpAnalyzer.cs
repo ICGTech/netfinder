@@ -44,7 +44,7 @@ public sealed class LldpCdpAnalyzer : IPacketAnalyzer
         ctx.Store.Observe(f.SrcMac, "LLDP", ctx.Adapter, mgmt, d =>
         {
             if (sysName != null) d.Hostname ??= sysName;
-            if (sysDesc != null) { d.Info["LLDP description"] = sysDesc; d.Model ??= sysDesc.Split('\n')[0]; }
+            if (sysDesc != null) { d.Info["LLDP description"] = sysDesc; d.OfferModel(sysDesc.Split('\n')[0], "LLDP", 40); }
             if (port != null) d.Info["Connected to its port"] = port;
             if (mgmt != null) d.Info["LLDP management IP"] = mgmt.ToString();
         });
@@ -78,7 +78,7 @@ public sealed class LldpCdpAnalyzer : IPacketAnalyzer
         ctx.Store.Observe(f.SrcMac, "CDP", ctx.Adapter, addr, d =>
         {
             if (devId != null) d.Hostname ??= devId;
-            if (platform != null) d.Model ??= platform;
+            if (platform != null) d.OfferModel(platform, "CDP", 70);
             if (port != null) d.Info["Connected to its port"] = port;
             if (software != null) d.Info["CDP software"] = software.Split('\n')[0];
         });

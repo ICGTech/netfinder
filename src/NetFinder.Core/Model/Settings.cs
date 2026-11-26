@@ -52,10 +52,16 @@ public sealed class Settings
     public List<int> Ports { get; set; } = new()
     {
         21, 22, 23, 25, 53, 80, 81, 82, 88, 110, 139, 143, 161, 443, 445, 502, 554, 631, 1883, 1900, 3000, 3306, 3389,
-        5000, 5001, 5060, 5432, 5900, 7547, 8000, 8001, 8008, 8080, 8081, 8088, 8443, 8728, 8888, 8899, 9000, 9100, 37777, 49152, 62078, 8009, 8291,
+        5000, 5001, 5060, 5432, 5900, 7547, 8000, 8001, 8008, 8080, 8081, 8088, 8443, 8728, 8888, 8899, 9000, 9100, 37777, 49152, 62078, 8009, 8291, 135,
     };
 
     public int PortTimeoutMs { get; set; } = 700;
+
+    /// <summary>SNMP read communities tried to read model / serial (comma separated). Only "public" by default.</summary>
+    public string SnmpCommunities { get; set; } = "public";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> SnmpCommunityList =>
+        SnmpCommunities.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().Take(5).ToList();
     public bool AutoCheckPorts { get; set; } = true;
 
     /// <summary>Prefix used for the temporary IP added to reach a device on another subnet.</summary>
@@ -70,8 +76,12 @@ public sealed class Settings
     {
         try
         {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new Settings();
+            if (File.Exists(FilePath) && JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) is { } s)
+            {
+                // 1.1.6: port 135 tells Windows PCs apart (for "Get model" over WMI)
+                if (!s.Ports.Contains(135)) s.Ports.Add(135);
+                return s;
+            }
         }
         catch { }
         return new Settings();

@@ -370,7 +370,7 @@ public static class NvrClient
         {
             d.Info["NVR cameras"] = r.Cameras.Count.ToString();
             d.Info["NVR brand (API)"] = r.BrandName;
-            if (r.Model != null) { d.Info["NVR model"] = r.Model; d.Model ??= r.Model; }
+            if (r.Model != null) { d.Info["NVR model"] = r.Model; d.OfferModel(r.Model, r.BrandName + " API", 90); }
             if (r.Serial != null) d.Info["NVR serial number"] = r.Serial;
             if (r.Firmware != null) d.Info["NVR firmware"] = r.Firmware;
             if (r.Name != null) d.Hostname ??= r.Name;
@@ -386,7 +386,7 @@ public static class NvrClient
                 if (d.Mac.Length == 0 && !d.Sources.Contains("Ping") && !d.Sources.Contains("TCP")) d.Routed = false;
                 d.Info["NVR channel"] = $"{nvrIp}  channel {cam.Channel}";
                 if (cam.Name.Length > 0) { d.Info["Name on NVR"] = cam.Name; d.Hostname ??= cam.Name; }
-                if (cam.Model != null) d.Model ??= cam.Model;
+                if (cam.Model != null) d.OfferModel(cam.Model, "NVR", 90);
                 if (cam.Serial != null) d.Info["Serial number"] = cam.Serial;
                 if (cam.Firmware != null) d.Info["Firmware"] = cam.Firmware;
                 if (cam.Port != null) d.Info["Port on NVR"] = cam.Port.ToString()!;

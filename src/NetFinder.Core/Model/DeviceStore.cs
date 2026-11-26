@@ -128,7 +128,7 @@ public sealed class DeviceStore
         lock (from) lock (to)
         {
             to.Hostname ??= from.Hostname;
-            to.Model ??= from.Model;
+            if (from.Model != null) to.OfferModel(from.Model, from.ModelSource ?? "", from.ModelRank);
             foreach (var s in from.Sources) to.Sources.Add(s);
             foreach (var kv in from.Info) to.Info.TryAdd(kv.Key, kv.Value);
             foreach (var s in from.Services) to.Services.Add(s);

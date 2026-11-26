@@ -48,7 +48,7 @@ public sealed class MdnsAnalyzer : IPacketAnalyzer
         ctx.Store.Observe(f.SrcMac, "mDNS", ctx.Adapter, f.SrcIp, d =>
         {
             if (host != null) { d.Hostname ??= host; d.Info["mDNS name"] = host + ".local"; }
-            if (model != null) d.Model ??= model;
+            if (model != null) d.OfferModel(model, "mDNS", 60);
             if (friendly != null) d.Info["mDNS friendly name"] = friendly;
             foreach (var s in services) d.Services.Add(s);
         });

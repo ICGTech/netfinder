@@ -69,9 +69,9 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         (@"hikvision|dahua|ds-2cd|ipc-|ip camera|network camera|webcam|ezviz|reolink|onvif", T.Camera, 80),
         (@"\bnvr\b|\bdvr\b|\b[nxhd]vr\d|ds-7\d|ds-9\d|xvr", T.Nvr, 85),
         (@"webos|tizen|bravia|android ?tv|google tv|chromecast|roku|fire ?tv|smarttv|smart tv|dlnadoc|mediarenderer|kodi|apple ?tv|appletv", T.Tv, 75),
-        (@"switch|catalyst|procurve|aruba \d|nexus|ios-xe|cisco ios|junos ex|comware|powerconnect|cloud ?engine|s5[17]\d\d|sg\d{3}|cbs\d{3}|tl-sg|gs\d{3}|omniswitch", T.Switch, 75),
+        (@"switch|catalyst|cisco-1\.\d|procurve|aruba \d|nexus|ios-xe|cisco ios|junos ex|comware|powerconnect|cloud ?engine|s5[17]\d\d|sg\d{3}|cbs\d{3}|tl-sg|gs\d{3}|omniswitch", T.Switch, 75),
         (@"access point|unifi ap|uap-|eap\d|instant on ap|airos|wap\d", T.AccessPoint, 75),
-        (@"routeros|mikrotik|openwrt|dd-wrt|fritz!box|router|gateway|igd|internetgatewaydevice|wanipconnection|wancommoninterface|edgeos|vyos|pfsense|opnsense", T.Router, 65),
+        (@"routeros|rosssh|mikrotik|openwrt|dd-wrt|fritz!box|router|gateway|igd|internetgatewaydevice|wanipconnection|wancommoninterface|edgeos|vyos|pfsense|opnsense", T.Router, 65),
         (@"fortigate|fortios|pan-os|sonicwall|sophos|watchguard|checkpoint|asa\d", T.Firewall, 80),
         (@"synology|diskstation|dsm|qnap|qts|truenas|freenas|readynas|my ?cloud|unraid", T.Nas, 85),
         (@"macbook|imac|macmini|mac mini|macpro|mac pro|mac studio|mac\d+,\d", T.Mac, 85),
@@ -103,7 +103,7 @@ public sealed class BuiltInClassifier : IDeviceClassifier
     {
         (9100, T.Printer, 60), (631, T.Printer, 50), (515, T.Printer, 40),
         (554, T.Camera, 45), (37777, T.Nvr, 60), (8000, T.Camera, 15),
-        (3389, T.WindowsPc, 55), (139, T.WindowsPc, 15), (445, T.WindowsPc, 15),
+        (3389, T.WindowsPc, 55), (135, T.WindowsPc, 30), (139, T.WindowsPc, 15), (445, T.WindowsPc, 15),
         (62078, T.IPhone, 85),
         (8008, T.Tv, 30), (8009, T.Tv, 45),
         (8291, T.Router, 75), (8728, T.Router, 70), (53, T.Router, 35), (7547, T.Router, 40), (1900, T.Router, 10),
@@ -131,10 +131,18 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         if (d.Vendor == "(Random / private MAC)") s.Add(T.Phone, 30, "private random MAC (phones do this)");
 
         Match(VendorRules, d.Vendor, s, "vendor");
+        if (d.Info.GetValueOrDefault("Manufacturer") is { } mf && !mf.Equals(d.Vendor, StringComparison.OrdinalIgnoreCase)) Match(VendorRules, mf, s, "maker");
+        if (d.Info.GetValueOrDefault("Maker (SNMP)") is { } sm && !sm.Equals(d.Vendor, StringComparison.OrdinalIgnoreCase)) Match(VendorRules, sm, s, "SNMP maker");
+        if (d.Info.GetValueOrDefault("ONVIF types")?.Contains("NetworkVideoTransmitter", StringComparison.OrdinalIgnoreCase) == true) s.Add(T.Camera, 60, "ONVIF video device");
+        if (d.Sources.Contains("IPP")) s.Add(T.Printer, 80, "answers IPP (printer)");
+        if (d.Info.ContainsKey("Windows")) s.Add(T.WindowsPc, 120, "Windows (WMI)");
         foreach (var n in new[] { d.CustomName, d.Hostname, d.Info.GetValueOrDefault("NetBIOS name"), d.Info.GetValueOrDefault("mDNS name"), d.Info.GetValueOrDefault("mDNS friendly name") })
             Match(NameRules, n, s, "name");
         foreach (var m in new[] { d.Model, d.Info.GetValueOrDefault("DHCP vendor class"), d.Info.GetValueOrDefault("UPnP server"),
-                     d.Info.GetValueOrDefault("LLDP description"), d.Info.GetValueOrDefault("Web page title"), d.Info.GetValueOrDefault("CDP software") })
+                     d.Info.GetValueOrDefault("LLDP description"), d.Info.GetValueOrDefault("Web page title"), d.Info.GetValueOrDefault("CDP software"),
+                     d.Info.GetValueOrDefault("SNMP description"), d.Info.GetValueOrDefault("ONVIF name"), d.Info.GetValueOrDefault("UPnP model description"),
+                     d.Info.GetValueOrDefault("UPnP device type"), d.Info.GetValueOrDefault("Web login realm"), d.Info.GetValueOrDefault("FTP banner"),
+                     d.Info.GetValueOrDefault("SSH banner"), d.Info.GetValueOrDefault("Telnet banner"), d.Info.GetValueOrDefault("Windows") })
             Match(ModelRules, m, s, "model");
 
         foreach (var (svc, type, pts) in ServiceRules)

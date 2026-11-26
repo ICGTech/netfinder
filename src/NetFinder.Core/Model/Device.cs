@@ -37,6 +37,25 @@ public sealed class Device
     public string? Vendor { get; set; }
     public string? Hostname { get; set; }
     public string? Model { get; set; }
+    /// <summary>Where the model came from ("SNMP", "UPnP", "Windows (WMI)"…) and how much we trust it.</summary>
+    public string? ModelSource { get; set; }
+    public int ModelRank { get; set; }
+
+    /// <summary>
+    /// Sets the model if this source is at least as trustworthy as the current one.
+    /// Ranks: Windows/WMI 100, NVR 90, IPP 85, SNMP entity/printer 80, UPnP/ONVIF 75, CDP 70, mDNS 60, LLDP 40, SNMP description 35.
+    /// </summary>
+    public bool OfferModel(string? model, string source, int rank)
+    {
+        model = model?.Replace('\r', ' ').Replace('\n', ' ').Trim().Trim('"');
+        if (string.IsNullOrWhiteSpace(model) || model.Length > 80) return false;
+        if (Model != null && rank < ModelRank) return false;
+        if (Model == model && ModelSource != null) { ModelRank = Math.Max(ModelRank, rank); return false; }
+        Model = model;
+        ModelSource = source;
+        ModelRank = rank;
+        return true;
+    }
 
     /// <summary>Detected type: "Android phone", "Printer", "Switch"... (see DeviceTypes).</summary>
     public string Type { get; set; } = DeviceTypes.Unknown;

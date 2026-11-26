@@ -24,6 +24,10 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _chkRepeat = new("Repeat scan") { CheckOnClick = true, ToolTipText = "Scan again every 2 minutes (catches phones that sleep on Wi-Fi)" };
     private readonly ToolStripButton _chkDeep = new("Deep scan 192.168.x.x") { CheckOnClick = true, ToolTipText = "Also probe all 65,536 addresses of 192.168.0.0/16 (~45 s, needs Npcap)" };
     private readonly ToolStripTextBox _txtRange = new() { AutoSize = false, Width = 230, ToolTipText = "Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*" };
+    private readonly ToolStripButton _btnModels = new("Get models") { ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
+    private readonly ToolStripStatusLabel _stExport = new("Export results…") { IsLink = true, Visible = false, LinkBehavior = LinkBehavior.HoverUnderline, Margin = new Padding(8, 3, 8, 2) };
+    private Dialogs.WindowsLogin? _winLogin; // memory only, never saved
+    private CancellationTokenSource? _modelsCts;
     private readonly ToolStripLabel _lblCount = new("0 devices") { Font = new Font("Segoe UI Semibold", 11f), ForeColor = Theme.Accent, Alignment = ToolStripItemAlignment.Right, Margin = new Padding(12, 0, 4, 0) };
 
     // toolbar row 2: view
@@ -67,7 +71,7 @@ public sealed class MainForm : Form
     private readonly Dictionary<string, DataGridViewRow> _rows = new();
     private readonly ConcurrentQueue<string> _logQueue = new();
     private readonly ConcurrentDictionary<string, byte> _portsQueued = new();
-    private readonly SemaphoreSlim _portSem = new(4);
+    private readonly SemaphoreSlim _portSem = new(8);
     private CancellationTokenSource? _scanCts;
     private readonly CancellationTokenSource _lifetime = new();
     private Device? _selected;
@@ -151,8 +155,9 @@ public sealed class MainForm : Form
             logo, new ToolStripSeparator(),
             _btnScan, _btnStop, new ToolStripSeparator(),
             new ToolStripLabel("Range:"), _txtRange, new ToolStripSeparator(),
-            _btnListen, _chkRepeat, _chkDeep,
+            _btnListen, _chkRepeat, _chkDeep, new ToolStripSeparator(), _btnModels,
         });
+        _btnModels.Click += async (_, _) => { if (_modelsCts != null) _modelsCts.Cancel(); else await GetModelsForAllAsync(); };
         _tools.Items.Add(_lblCount);
 
         _txtFilter.TextChanged += (_, _) => ApplyFilter();
@@ -160,8 +165,8 @@ public sealed class MainForm : Form
         _chkOther.CheckedChanged += (_, _) => ApplyFilter();
         var btnClear = new ToolStripButton("Clear") { ToolTipText = "Clear the list" };
         btnClear.Click += (_, _) => { _engine.Store.Clear(); _engine.LearnedSubnets.Clear(); };
-        var btnExport = new ToolStripButton("Export");
-        btnExport.Click += (_, _) => ExportCsv();
+        var btnExport = new ToolStripButton("Export") { ToolTipText = "Save the list as Excel (.xlsx), CSV or an HTML report (print it to PDF)" };
+        btnExport.Click += (_, _) => Export();
         var btnSettings = new ToolStripButton("Settings");
         btnSettings.Click += (_, _) => { using var f = new SettingsForm(_settings, _engine.Plugins); f.ShowDialog(this); };
         var btnAbout = new ToolStripButton("About");
@@ -248,6 +253,7 @@ public sealed class MainForm : Form
             ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
         });
         Col("Name", "Name", 180, fill: true);
+        Col("Model", "Model", 190);
         Col("Vendor", "Vendor", 180);
         Col("Mac", "MAC", 130);
         Col("Net", "Network", 150);
@@ -309,6 +315,8 @@ public sealed class MainForm : Form
         m.Items.Add("Show cameras (NVR / DVR)…", Theme.TypeIcon(DeviceTypes.Nvr, 16, SystemColors.Menu), (_, _) => ShowCameras(SelectedDevice()));
         m.Items.Add("Make reachable (add temporary IP)", null, async (_, _) => { if (SelectedDevice() is { } d) await MakeReachableAsync(d); });
         m.Items.Add("Check open ports", null, async (_, _) => { if (SelectedDevice() is { } d) await CheckPortsAsync(d, force: true); });
+        m.Items.Add("Get model", null, async (_, _) => { if (SelectedDevice() is { } d) await GetModelAsync(d); });
+        m.Items.Add("Get model with Windows login…", null, async (_, _) => { if (SelectedDevice() is { } d) await GetWindowsModelAsync(d, askLogin: true); });
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add("Copy IP", null, (_, _) => { if (SelectedDevice()?.Ip is { } ip) Clipboard.SetText(ip.ToString()); });
         m.Items.Add("Copy MAC", null, (_, _) => { if (SelectedDevice() is { Mac.Length: > 0 } d) Clipboard.SetText(d.Mac); });
@@ -338,7 +346,8 @@ public sealed class MainForm : Form
 
     private void BuildStatus()
     {
-        _status.Items.AddRange(new ToolStripItem[] { _stMode, new ToolStripSeparator(), _stCount, new ToolStripSeparator(), _stState, _stProgress, _stCompany });
+        _stExport.Click += (_, _) => Export();
+        _status.Items.AddRange(new ToolStripItem[] { _stMode, new ToolStripSeparator(), _stCount, new ToolStripSeparator(), _stState, _stProgress, _stExport, _stCompany });
     }
 
     // ───────────────────────────── startup ─────────────────────────────
@@ -588,6 +597,7 @@ public sealed class MainForm : Form
         {
             await Task.Run(() => _engine.ScanAsync(SelectedAdapters(), _engine.Plugins.Scanners, progress, _scanCts.Token));
             _stState.Text = $"Scan finished at {DateTime.Now:HH:mm:ss}." + (_engine.Listening ? " Still listening for new devices…" : "");
+            _stExport.Visible = true;
         }
         catch (OperationCanceledException) { _stState.Text = "Scan stopped."; }
         catch (Exception ex) { _stState.Text = "Scan failed: " + ex.Message; }
@@ -678,6 +688,8 @@ public sealed class MainForm : Form
             row.Cells["Ip"].Value = d.Ip?.ToString() ?? "(unknown)";
             row.Cells["Open"].Value = PrimaryFor(d)?.Label ?? "";
             row.Cells["Name"].Value = d.DisplayName;
+            row.Cells["Model"].Value = d.Model ?? "";
+            row.Cells["Model"].ToolTipText = d.ModelSource != null ? "Model from " + d.ModelSource : "";
             row.Cells["Vendor"].Value = d.Vendor ?? "";
             row.Cells["Mac"].Value = d.Mac.Length > 0 ? d.Mac : "—";
             row.Cells["Net"].Value = NetText(d);
@@ -753,7 +765,7 @@ public sealed class MainForm : Form
         _selectedRev = rev;
         // Only rebuild when something visible changed (devices update on every packet).
         string sig;
-        lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, d.Ip, d.BehindNvr, d.Routed, string.Join(",", d.OpenPorts),
+        lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, d.Ip, d.BehindNvr, d.Routed, d.Model, d.ModelSource, string.Join(",", d.OpenPorts),
             string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, d.Services.Count, d.Sources.Count, d.TypeOverride);
         if (sig == _panelSig) return;
         _panelSig = sig;
@@ -913,6 +925,35 @@ public sealed class MainForm : Form
             flow.Controls.Add(nvrRow);
         }
 
+        // model
+        if (ip != null || self)
+        {
+            string? model, modelSrc, serial; bool win;
+            lock (d) { model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d); }
+            flow.Controls.Add(new Label { Text = "Model", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
+            var modelRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+            modelRow.Controls.Add(new Label
+            {
+                Text = model != null ? $"{model}{(serial != null ? "   ·   S/N " + serial : "")}   (from {modelSrc})" : "Not known yet.",
+                AutoSize = true, Font = model != null ? Theme.Bold : Theme.Base, ForeColor = model != null ? Color.Black : Theme.Muted, Margin = new Padding(2, 8, 12, 0),
+            });
+            if (!self)
+            {
+                var get = MakeButton("Get model", Color.White, Color.Black);
+                new ToolTip().SetToolTip(get, "Ask the device (web page, UPnP, SNMP, ONVIF, IPP) – no password needed");
+                get.Click += async (_, _) => await GetModelAsync(d);
+                modelRow.Controls.Add(get);
+            }
+            if (win)
+            {
+                var wmi = MakeButton(self ? "Read this PC's model" : "Windows login…", Color.White, Color.Black);
+                new ToolTip().SetToolTip(wmi, "Model, serial number, CPU, RAM and Windows version, read from Windows itself (needs an admin login on that PC)");
+                wmi.Click += async (_, _) => await GetWindowsModelAsync(d, askLogin: !self);
+                modelRow.Controls.Add(wmi);
+            }
+            flow.Controls.Add(modelRow);
+        }
+
         // ports
         flow.Controls.Add(new Label { Text = "Open ports", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 12, 0, 2) });
         var portLine = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
@@ -948,7 +989,7 @@ public sealed class MainForm : Form
 
     private static string PortName(int p) => p switch
     {
-        21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS", 80 => "HTTP", 81 or 82 or 88 => "HTTP", 110 => "POP3",
+        21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS", 80 => "HTTP", 81 or 82 or 88 => "HTTP", 110 => "POP3", 135 => "Windows RPC",
         139 => "NetBIOS", 143 => "IMAP", 161 => "SNMP", 443 => "HTTPS", 445 => "SMB (file sharing)", 502 => "Modbus", 515 => "LPD printer",
         554 => "RTSP (video)", 631 => "IPP printer", 1883 => "MQTT", 1900 => "UPnP", 3000 => "Web", 3306 => "MySQL", 3389 => "Remote Desktop",
         5000 or 5001 => "Web / NAS", 5060 => "SIP", 5432 => "PostgreSQL", 5900 => "VNC", 7547 => "TR-069", 8000 or 8001 => "Web",
@@ -979,7 +1020,7 @@ public sealed class MainForm : Form
             Add("Detected from", d.TypeReason);
             Add("Name (yours)", d.CustomName);
             Add("Hostname", d.Hostname);
-            Add("Model", d.Model);
+            Add("Model", d.Model == null ? null : d.Model + (d.ModelSource != null ? $"   (from {d.ModelSource})" : ""));
             Add("IP addresses", string.Join(", ", d.Ips));
             Add("MAC", d.Mac);
             Add("Vendor", d.Vendor);
@@ -1087,14 +1128,7 @@ public sealed class MainForm : Form
         return m is { Success: true } ? $" (channel {m.Groups[1].Value})" : "";
     }
 
-    private static string NetText(Device d)
-    {
-        if (d.Ip == null) return "—";
-        if (d.Routed) return "Behind a router";
-        if (d.Reachable) return "My subnet";
-        if (d.BehindNvr != null) return $"Behind NVR {d.BehindNvr}";
-        return $"Other: {Subnet.Of(d.Ip, 24)}";
-    }
+    private static string NetText(Device d) => d.IsSelf ? "My subnet" : Core.Export.DeviceText.Network(d);
 
     /// <summary>"Show cameras": goes through RunAction so an NVR on another subnet is made reachable first.</summary>
     private void ShowCameras(Device? d)
@@ -1151,20 +1185,180 @@ public sealed class MainForm : Form
         lock (d) _engine.Store.Labels.Set(d);
     }
 
-    private void ExportCsv()
+    private void Export()
     {
-        using var dlg = new SaveFileDialog { Filter = "CSV file|*.csv", FileName = $"{AppInfo.Name}-{DateTime.Now:yyyyMMdd-HHmm}.csv" };
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Export the device list",
+            Filter = "Excel workbook (*.xlsx)|*.xlsx|CSV – opens in Excel (*.csv)|*.csv|Report for browser / PDF (*.html)|*.html",
+            FileName = $"{AppInfo.Name}-{DateTime.Now:yyyyMMdd-HHmm}",
+            AddExtension = true,
+        };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        var sb = new StringBuilder();
-        sb.AppendLine("Type,IP,All IPs,Name,Hostname,Model,Vendor,MAC,Network,Open ports,Found via,NVR,First seen,Last seen");
-        static string Q(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
-        foreach (var d in _engine.Store.All.OrderBy(x => x.Ip == null ? long.MaxValue : (long)Ip4.ToUInt(x.Ip)))
-            lock (d)
-                sb.AppendLine(string.Join(",", Q(d.EffectiveType), Q(d.Ip?.ToString()), Q(string.Join(" ", d.Ips)), Q(d.CustomName), Q(d.Hostname), Q(d.Model),
-                    Q(d.Vendor), Q(d.Mac), Q(NetText(d)), Q(string.Join(" ", d.OpenPorts)), Q(string.Join(" ", d.Sources)), Q(d.Info.GetValueOrDefault("NVR channel")),
-                    Q(d.FirstSeen.ToString("s")), Q(d.LastSeen.ToString("s"))));
-        File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true));
-        _stState.Text = "Exported to " + dlg.FileName;
+        var path = dlg.FileName;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".xlsx" or ".csv" or ".html" or ".htm")) path += dlg.FilterIndex switch { 2 => ".csv", 3 => ".html", _ => ".xlsx" };
+        try
+        {
+            var devices = _engine.Store.All.Where(d => !_chkOther.Checked || !d.Reachable).ToList();
+            Core.Export.Exporter.Save(path, devices, $"Network devices – {Environment.MachineName} – {DateTime.Now:yyyy-MM-dd HH:mm}");
+            _stState.Text = $"Exported {devices.Count} devices to {path}";
+            if (MessageBox.Show(this, $"Saved {devices.Count} devices to\n{path}\n\nOpen it now?", AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                Launcher.Open(path);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Could not save the file: " + ex.Message + "\n\n(Is it open in Excel? Close it and try again.)", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // ───────────────────────────── models ─────────────────────────────
+
+    /// <summary>Asks one device for its model without a password (makes it reachable first if needed).</summary>
+    private async Task GetModelAsync(Device d)
+    {
+        bool reachable, self; IPAddress? ip;
+        lock (d) { reachable = d.Reachable; self = d.IsSelf; ip = d.Ip; }
+        if (self) { await GetWindowsModelAsync(d, askLogin: false); return; }
+        if (ip == null) return;
+        if (!reachable)
+        {
+            string? nvr; lock (d) nvr = d.BehindNvr;
+            if (nvr != null) { MessageBox.Show(this, $"{ip} is a camera on NVR {nvr}; its model comes from the NVR (Show cameras on the NVR).", AppInfo.Name); return; }
+            if (MessageBox.Show(this, $"{ip} is on another subnet. Add a temporary IP in its subnet to ask it?", AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            if (!await MakeReachableAsync(d)) return;
+        }
+        _stState.Text = $"Asking {ip} for its model…";
+        await CheckPortsAsync(d, force: true);
+        string? model, src;
+        lock (d) { model = d.Model; src = d.ModelSource; }
+        _stState.Text = model != null ? $"{ip}: {model}  (from {src})" :
+            $"{ip} did not tell its model." + (LooksWindowsLocked(d) ? " It looks like a Windows PC: try \"Get model with Windows login\"." : "");
+    }
+
+    private static bool LooksWindowsLocked(Device d) { lock (d) return LooksWindows(d); }
+
+    /// <summary>Windows PC (or probably one): worth asking over WMI.</summary>
+    private static bool LooksWindows(Device d) =>
+        d.IsSelf || d.EffectiveType is DeviceTypes.WindowsPc || d.OpenPorts.Contains(135) || d.OpenPorts.Contains(3389) ||
+        (d.OpenPorts.Contains(445) && d.EffectiveType is DeviceTypes.Unknown or DeviceTypes.Vm) || d.Info.GetValueOrDefault("TTL") == "128";
+
+    /// <summary>Reads one PC's model over WMI (asks for a login when none is remembered yet).</summary>
+    private async Task GetWindowsModelAsync(Device d, bool askLogin)
+    {
+        bool self; IPAddress? ip;
+        lock (d) { self = d.IsSelf; ip = d.Ip; }
+        if (ip == null && !self) return;
+        if (!self && (askLogin || _winLogin == null))
+        {
+            var login = Dialogs.AskWindowsLogin(this, ip!.ToString(), _winLogin);
+            if (login == null) return;
+            _winLogin = login;
+        }
+        bool reachable; lock (d) reachable = d.Reachable || self;
+        if (!reachable)
+        {
+            var r = MessageBox.Show(this, $"{ip} is on another subnet. Add a temporary IP in its subnet first?", AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            if (r != DialogResult.OK || !await MakeReachableAsync(d)) return;
+        }
+        UseWaitCursor = true;
+        _stState.Text = $"Reading the model of {(self ? "this PC" : ip!.ToString())} (Windows)…";
+        try
+        {
+            var info = await WmiReader.ReadAsync(ip?.ToString() ?? ".", _winLogin?.User, _winLogin?.Password, self, _lifetime.Token);
+            _engine.Store.Touch(d, info.ApplyTo);
+            _stState.Text = $"{(self ? "This PC" : ip!.ToString())}: {info.Model ?? "model not reported"}";
+        }
+        catch (Exception ex)
+        {
+            _stState.Text = "Could not read the Windows model: " + ex.Message.Split('\n')[0];
+            MessageBox.Show(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally { UseWaitCursor = false; }
+    }
+
+    /// <summary>
+    /// "Get models": every device on the list, on every range. Devices on other subnets get a temporary IP in their range
+    /// (one per range), then each device is asked without a password; Windows PCs also over WMI when a login is given.
+    /// </summary>
+    private async Task GetModelsForAllAsync()
+    {
+        var all = _engine.Store.All.Where(d => { lock (d) return d.Ip != null || d.IsSelf; }).ToList();
+        if (all.Count == 0) { MessageBox.Show(this, "The list is empty. Press Scan first.", AppInfo.Name); return; }
+        int other, win;
+        other = all.Count(d => { lock (d) return !d.Reachable && !d.IsSelf && d.BehindNvr == null; });
+        win = all.Count(d => { lock (d) return LooksWindows(d); });
+        var opt = Dialogs.AskModelsOptions(this, all.Count, other, win, _winLogin);
+        if (opt == null) return;
+        if (opt.Login != null) _winLogin = opt.Login;
+
+        _modelsCts = new CancellationTokenSource();
+        var ct = _modelsCts.Token;
+        _btnModels.Text = "Stop models";
+        _stProgress.Visible = true;
+        int done = 0, found = 0, windowsOk = 0;
+        var errors = new List<string>();
+        try
+        {
+            // 1) one temporary IP per other range
+            if (opt.OtherSubnets)
+            {
+                var groups = all.Where(d => { lock (d) return !d.Reachable && !d.IsSelf && d.BehindNvr == null && d.Ip != null; })
+                    .GroupBy(d => { lock (d) return Subnet.Of(d.Ip!, _settings.ReachPrefix); }).ToList();
+                foreach (var g in groups)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    _stState.Text = $"Adding a temporary IP for {g.Key}…";
+                    var (ok, msg) = await _reach.MakeReachableAsync(g.First());
+                    if (!ok) errors.Add($"{g.Key}: {msg.Split('\n')[0]}");
+                }
+            }
+
+            // 2) ask every reachable device (8 at a time)
+            using var sem = new SemaphoreSlim(8);
+            var targets = all.Where(d => { lock (d) return d.Reachable || d.IsSelf; }).ToList();
+            await Task.WhenAll(targets.Select(async d =>
+            {
+                await sem.WaitAsync(ct);
+                try
+                {
+                    bool self, isWin; string? before;
+                    lock (d) { self = d.IsSelf; before = d.Model; }
+                    if (!self) await Task.Run(() => _engine.CheckPortsAsync(d, ct), ct);
+                    lock (d) isWin = LooksWindows(d);
+                    if (isWin && (self || opt.Login != null))
+                    {
+                        try
+                        {
+                            var ip = d.Ip?.ToString() ?? ".";
+                            var info = await WmiReader.ReadAsync(ip, opt.Login?.User, opt.Login?.Password, self, ct);
+                            _engine.Store.Touch(d, info.ApplyTo);
+                            Interlocked.Increment(ref windowsOk);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex) { lock (errors) errors.Add($"{d.Ip}: {ex.Message.Split('\n')[0]}"); }
+                    }
+                    lock (d) if (d.Model != null) Interlocked.Increment(ref found);
+                }
+                finally
+                {
+                    sem.Release();
+                    var n = Interlocked.Increment(ref done);
+                    if (!IsDisposed) _stState.Text = $"Getting models… {n}/{targets.Count}";
+                }
+            }));
+            _stState.Text = $"Models: {found} of {targets.Count} devices have a model" + (windowsOk > 0 ? $" ({windowsOk} Windows PCs read)" : "") +
+                            (errors.Count > 0 ? $"  ·  {errors.Count} problem(s), see the Log tab" : "");
+            foreach (var e in errors) _engine.Log("Get models: " + e);
+            _stExport.Visible = true;
+        }
+        catch (OperationCanceledException) { _stState.Text = $"Get models stopped ({done} done)."; }
+        finally
+        {
+            _modelsCts.Dispose(); _modelsCts = null;
+            _btnModels.Text = "Get models";
+            _stProgress.Visible = _scanCts != null;
+        }
     }
 
     private void OnClosing(object? sender, FormClosingEventArgs e)
