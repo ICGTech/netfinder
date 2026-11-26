@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using NetFinder.Core;
+using NetFinder.Core.Classifiers;
 using NetFinder.Core.Actions;
 using NetFinder.Core.Model;
 using NetFinder.Core.Net;
@@ -55,6 +57,13 @@ public sealed class MainForm : Form
     private readonly Panel _devicePanel = new() { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White, Padding = new Padding(16, 12, 16, 12) };
     private readonly ListView _details = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, BorderStyle = BorderStyle.None };
     private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BackColor = Color.White, BorderStyle = BorderStyle.None };
+    // the Log tab shows the lines about the selected device (all of them when nothing is selected or the box is unticked)
+    private readonly CheckBox _logOnlySel = new() { Text = "Only lines about the selected device", Checked = true, AutoSize = true, Margin = new Padding(2, 5, 12, 0) };
+    private readonly Label _logInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(0, 7, 12, 0) };
+    private readonly List<string> _logAll = new();
+    private Regex? _logFilter;
+    private Device? _logFor;
+    private int _logShown;
 
     // status
     private readonly StatusStrip _status = new() { SizingGrip = true };
@@ -344,8 +353,16 @@ public sealed class MainForm : Form
         _details.Columns.Add("Property", 220);
         _details.Columns.Add("Value", 700);
         _tabDetails.Controls.Add(_details);
+        var logBar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 32, WrapContents = false, BackColor = Color.White, Padding = new Padding(4, 2, 4, 0) };
+        var copy = new LinkLabel { Text = "Copy", AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
+        copy.LinkClicked += (_, _) => { if (_log.TextLength > 0) Clipboard.SetText(_log.Text); };
+        _logOnlySel.CheckedChanged += (_, _) => UpdateLogView(force: true);
+        logBar.Controls.AddRange(new Control[] { _logOnlySel, _logInfo, copy });
         _tabLog.Controls.Add(_log);
+        _tabLog.Controls.Add(logBar);
+        _log.BringToFront();
         _tabs.TabPages.AddRange(new[] { _tabDevice, _tabDetails, _tabLog });
+        UpdateLogView();
         ShowEmptyDevicePanel();
     }
 
@@ -636,12 +653,19 @@ public sealed class MainForm : Form
             while (_removed.TryDequeue(out _)) { }
             SelectDevice(null);
         }
-        var sb = new StringBuilder();
-        while (_logQueue.TryDequeue(out var l)) sb.AppendLine(l);
-        if (sb.Length > 0)
+        var fresh = new List<string>();
+        while (_logQueue.TryDequeue(out var l)) fresh.Add(l);
+        if (fresh.Count > 0)
         {
-            if (_log.TextLength > 200_000) _log.Clear();
-            _log.AppendText(sb.ToString());
+            _logAll.AddRange(fresh);
+            if (_logAll.Count > 20_000) _logAll.RemoveRange(0, _logAll.Count - 15_000);
+            var show = _logFilter == null ? fresh : fresh.Where(l => _logFilter.IsMatch(l)).ToList();
+            if (show.Count > 0)
+            {
+                _logShown += show.Count;
+                if (_log.TextLength > 400_000) UpdateLogView(force: true);
+                else { _log.AppendText(string.Join("\r\n", show) + "\r\n"); if (_logFilter != null) ShowLogInfo(); }
+            }
         }
         var changed = false;
         while (_removed.TryDequeue(out var gone))
@@ -770,7 +794,37 @@ public sealed class MainForm : Form
         _selectedRev = -1;
         _panelSig = "";
         RefreshSelected();
+        UpdateLogView();
     }
+
+    /// <summary>Fills the Log tab: the lines about the selected device (its IP, MAC or name), or the whole log.</summary>
+    private void UpdateLogView(bool force = false)
+    {
+        var d = _logOnlySel.Checked ? _selected : null;
+        if (!force && d == _logFor && (d != null || _logFilter == null) && _log.TextLength > 0) return;
+        _logFor = d;
+        _logFilter = d == null ? null : LogFilter.For(d);
+        var lines = _logFilter == null ? _logAll : _logAll.Where(l => _logFilter.IsMatch(l)).ToList();
+        _logShown = lines.Count;
+        _log.Text = lines.Count == 0 ? "" : string.Join("\r\n", lines.Skip(Math.Max(0, lines.Count - 5000))) + "\r\n";
+        _log.SelectionStart = _log.TextLength;
+        _log.ScrollToCaret();
+        ShowLogInfo();
+    }
+
+    private void ShowLogInfo()
+    {
+        var d = _logFor;
+        if (d == null || _logFilter == null)
+        {
+            _logInfo.Text = _selected == null || !_logOnlySel.Checked ? "Whole log" + (_selected == null ? "  (select a device to see only its lines)" : "") : "Whole log";
+            return;
+        }
+        string who;
+        lock (d) who = d.IsSelf ? "this PC" : d.Ip?.ToString() ?? d.DisplayName;
+        _logInfo.Text = _logShown == 0 ? $"No lines about {who} yet  (untick the box to see the whole log)" : $"{_logShown} line(s) about {who}";
+    }
+
 
     private void RefreshSelected()
     {
@@ -951,7 +1005,14 @@ public sealed class MainForm : Form
                 model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc;
                 hw = new[] { ("CPU", ""), ("RAM", " RAM"), ("Disk", ""), ("Drive C:", ""), ("Graphics", ""), ("Windows", "") }
                     .Where(k => d.Info.ContainsKey(k.Item1))
-                    .Select(k => k.Item1 == "Drive C:" ? "C: " + d.Info[k.Item1] : d.Info[k.Item1] + k.Item2).ToList();
+                    .SelectMany(k => k.Item1 switch
+                    {
+                        "Drive C:" => new[] { "C: " + d.Info[k.Item1] },
+                        // each disk on its own line
+                        "Disk" => SplitDisks(d.Info[k.Item1]) is var disks && disks.Count > 1
+                            ? disks.Select((x, i) => $"Disk {i + 1}: {x}").ToArray() : new[] { "Disk: " + d.Info[k.Item1] },
+                        _ => new[] { d.Info[k.Item1] + k.Item2 },
+                    }).ToList();
             }
             flow.Controls.Add(new Label { Text = "Model", Font = Theme.Bold, AutoSize = true, Margin = new Padding(2, 10, 0, 2) });
             var modelRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
@@ -1063,7 +1124,12 @@ public sealed class MainForm : Form
             Add("Open ports", string.Join(", ", d.OpenPorts));
             foreach (var kv in d.PortInfo) Add($"Port {kv.Key}", kv.Value);
             Add("Services (mDNS)", string.Join(", ", d.Services));
-            foreach (var kv in d.Info) Add(kv.Key, kv.Value);
+            foreach (var kv in d.Info)
+            {
+                if (kv.Key == "Disk" && SplitDisks(kv.Value) is { Count: > 1 } disks)
+                    for (var i = 0; i < disks.Count; i++) Add($"Disk {i + 1}", disks[i]);
+                else Add(kv.Key, kv.Value);
+            }
         }
         _details.EndUpdate();
     }
@@ -1274,6 +1340,47 @@ public sealed class MainForm : Form
         (d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.Vm or DeviceTypes.Unknown && d.Info.GetValueOrDefault("TTL") == "128") ||
         (d.EffectiveType == DeviceTypes.WindowsPc && d.PortsCheckedAt != null && d.OpenPorts.Count == 0);
 
+    /// <summary>
+    /// Asked with the Windows login in "Get models": what looks like Windows, anything typed Windows PC, and a PC maker's
+    /// network card (Dell, HP, Lenovo…) that is not clearly something else. Safe: the login is only sent where 135 or 445 answers.
+    /// </summary>
+    private static bool WindowsCandidate(Device d) =>
+        d.BehindNvr == null && (LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc ||
+        (BuiltInClassifier.IsPcMaker(d.Vendor) && d.EffectiveType is DeviceTypes.Unknown or DeviceTypes.Linux or DeviceTypes.Vm));
+
+    /// <summary>"10.0.0.6 (Dell)": an IP with its maker, for the Log and the summary.</summary>
+    private static string WhoWithMaker(Device d)
+    {
+        lock (d)
+        {
+            if (d.IsSelf) return "This PC";
+            var v = d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor;
+            var maker = v == null || v.StartsWith('(') ? null
+                : Regex.IsMatch(v, @"^(hewlett|hp\b)", RegexOptions.IgnoreCase) ? "HP" : Regex.Match(v, @"^[A-Za-z0-9\-]+").Value;
+            return $"{d.Ip}{(string.IsNullOrEmpty(maker) ? "" : $" ({maker})")}";
+        }
+    }
+
+    /// <summary>The disks of one PC, as stored in its "Disk" info ("A  +  B").</summary>
+    private static List<string> SplitDisks(string v) => v.Split("  +  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    /// <summary>"CPU … · RAM 8 GB · Disk 1: … · Disk 2: … · C: … · Graphics: …", or null when Windows told none of it.</summary>
+    private static string? HardwareLine(PcInfo i)
+    {
+        var l = new List<string>();
+        if (i.Cpu != null) l.Add("CPU " + i.Cpu);
+        if (i.RamBytes is > 0) l.Add($"RAM {Math.Round(i.RamBytes.Value / 1073741824.0)} GB");
+        if (i.Disks != null)
+        {
+            var disks = SplitDisks(i.Disks);
+            l.AddRange(disks.Count > 1 ? disks.Select((x, n) => $"Disk {n + 1}: {x}") : disks.Select(x => "Disk: " + x));
+        }
+        else l.Add("Disk: not reported");
+        if (i.DriveC != null) l.Add("C: " + i.DriveC);
+        if (i.Graphics != null) l.Add("Graphics: " + i.Graphics);
+        return l.Count == 0 ? null : string.Join("  ·  ", l);
+    }
+
     /// <summary>The short (NetBIOS) domain name the Windows PCs on the list report ("ALMADA"), to spell the user name.</summary>
     private string? DomainHint() =>
         _engine.Store.All.Select(d => { lock (d) return d.Info.GetValueOrDefault("Workgroup / domain"); })
@@ -1321,6 +1428,7 @@ public sealed class MainForm : Form
             var res = await WindowsReader.ReadAsync(ip?.ToString() ?? ".", self, session, _lifetime.Token);
             _engine.Store.Touch(d, res.Info.ApplyTo);
             _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
+            if (HardwareLine(res.Info) is { } hwLine) _engine.Log($"Windows {who}: {hwLine}");
             _stState.Text = $"{who}: {res.Info.Model ?? "model not reported"}";
         }
         catch (OperationCanceledException) { }
@@ -1362,7 +1470,7 @@ public sealed class MainForm : Form
         if (all.Count == 0) { MessageBox.Show(this, "The list is empty. Press Scan first.", AppInfo.Name); return; }
         int other, win;
         other = all.Count(d => { lock (d) return !d.Reachable && !d.IsSelf && d.BehindNvr == null; });
-        win = all.Count(d => { lock (d) return LooksWindows(d); });
+        win = all.Count(d => { lock (d) return WindowsCandidate(d); });
         var opt = Dialogs.AskModelsOptions(this, all.Count, other, win, _winLogin);
         if (opt == null) return;
         if (opt.Login != null) _winLogin = opt.Login;
@@ -1374,6 +1482,8 @@ public sealed class MainForm : Form
         int done = 0, found = 0, windowsOk = 0;
         var errors = new List<string>();
         var winFails = new Dictionary<WinFail, List<string>>();
+        var silent = new List<string>();   // only in Windows' ARP table: did not answer at all (turned off?)
+        var noSign = new List<string>();   // a PC maker's card, 135 / 445 closed and nothing else says Windows
         var session = opt.Login != null ? new WindowsLoginSession(opt.Login.User, opt.Login.Password, DomainHint(), _engine.Log) { AllowServiceStart = opt.StartRemoteRegistry } : null;
         var selfSession = new WindowsLoginSession(null, null, null, _engine.Log);
         if (session != null)
@@ -1413,30 +1523,52 @@ public sealed class MainForm : Form
                 await sem.WaitAsync(ct);
                 try
                 {
-                    bool self, isWin; IPAddress? ip;
+                    bool self, isWin, seen; IPAddress? ip;
                     lock (d) { self = d.IsSelf; ip = d.Ip; }
                     if (!self) await Task.Run(() => _engine.CheckPortsAsync(d, ct), ct);
-                    lock (d) isWin = LooksWindows(d);
-                    if (isWin && (self || session != null))
+                    lock (d) { isWin = WindowsCandidate(d); seen = !_engine.CaptureAvailable || d.Sources.Any(s => s != "ARP table"); }
+                    var askedWindows = isWin && (self || session != null);
+                    if (askedWindows)
                     {
-                        var who = self ? "This PC" : ip!.ToString();
+                        var who = WhoWithMaker(d);
                         try
                         {
                             var res = await WindowsReader.ReadAsync(ip?.ToString() ?? ".", self, self ? selfSession : session!, ct);
                             _engine.Store.Touch(d, res.Info.ApplyTo);
                             Interlocked.Increment(ref windowsOk);
                             _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
+                            if (HardwareLine(res.Info) is { } hwLine) _engine.Log($"Windows {who}: {hwLine}");
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
                         {
                             var kind = ex is WinReadException w ? w.Kind : WinFail.Other;
-                            lock (winFails) { if (!winFails.TryGetValue(kind, out var l)) winFails[kind] = l = new(); l.Add(who); }
-                            // closed ports and "skipped" are summed up once at the end instead of one line per PC
-                            if (kind != WinFail.Closed && !ex.Message.StartsWith("skipped")) _engine.Log($"Windows {who}: {ex.Message}");
+                            bool evidence; lock (d) evidence = LooksWindows(d);
+                            if (kind == WinFail.Closed && !seen)
+                            {
+                                lock (silent) silent.Add(who);
+                                _engine.Log($"Windows {who}: did not answer at all; it is only in Windows' ARP table (turned off, or no longer on the network)");
+                            }
+                            else if (kind == WinFail.Closed && !evidence)
+                            {
+                                lock (noSign) noSign.Add(who);
+                                _engine.Log($"Windows {who}: ports 135 and 445 are closed and nothing else says it is Windows (a firewall that blocks everything, or not a PC: a server's management card, a thin client…)");
+                            }
+                            else
+                            {
+                                lock (winFails) { if (!winFails.TryGetValue(kind, out var l)) winFails[kind] = l = new(); l.Add(who); }
+                                if (!ex.Message.StartsWith("skipped")) _engine.Log($"Windows {who}: {ex.Message}");
+                            }
                         }
                     }
-                    lock (d) if (d.Model != null) Interlocked.Increment(ref found);
+                    string? model, src, type; string openPorts;
+                    lock (d) { model = d.Model; src = d.ModelSource; type = d.EffectiveType; openPorts = d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts.OrderBy(p => p)); }
+                    if (model != null) Interlocked.Increment(ref found);
+                    // one line per device, so the Log tab of each device says what "Get models" found there
+                    if (!askedWindows && !self && ip != null)
+                        _engine.Log(model != null ? $"Get models {ip}: {model} (from {src})"
+                            : $"Get models {ip}: it did not tell its model ({type}; open ports: {openPorts})" +
+                              (isWin && session == null ? "; it may be a Windows PC: tick \"Use a Windows login\" to read it" : ""));
                 }
                 finally
                 {
@@ -1446,12 +1578,12 @@ public sealed class MainForm : Form
                 }
             }));
             foreach (var e in errors) _engine.Log("Get models: " + e);
-            var winFailed = winFails.Values.Sum(v => v.Count);
+            var winFailed = winFails.Values.Sum(v => v.Count) + silent.Count + noSign.Count;
             _stState.Text = $"Models: {found} of {targets.Count} devices have a model" +
                             (windowsOk + winFailed > 0 ? $"  ·  Windows PCs: {windowsOk} read, {winFailed} not" : "") +
                             (errors.Count + winFailed > 0 ? "  ·  details in the Log tab" : "");
             _stExport.Visible = true;
-            if (winFailed > 0) ShowWindowsSummary(windowsOk, winFails, session?.StopReason);
+            if (winFailed + silent.Count + noSign.Count > 0) ShowWindowsSummary(windowsOk, winFails, silent, noSign, session?.StopReason);
         }
         catch (OperationCanceledException) { _stState.Text = $"Get models stopped ({done} done)."; }
         finally
@@ -1463,7 +1595,7 @@ public sealed class MainForm : Form
     }
 
     /// <summary>One clear summary of the Windows part of "Get models": what worked, what blocked it, and how to fix it.</summary>
-    private void ShowWindowsSummary(int ok, Dictionary<WinFail, List<string>> fails, string? stopReason)
+    private void ShowWindowsSummary(int ok, Dictionary<WinFail, List<string>> fails, List<string> silent, List<string> noSign, string? stopReason)
     {
         List<string> Get(params WinFail[] k) => k.SelectMany(x => fails.GetValueOrDefault(x) ?? new()).ToList();
         string Ips(List<string> l) => string.Join(", ", l.Take(12)) + (l.Count > 12 ? $" … (+{l.Count - 12})" : "");
@@ -1478,12 +1610,14 @@ public sealed class MainForm : Form
         if (denied.Count > 0) lines.Add($"{denied.Count} PC(s) refused the login (not an administrator there?): {Ips(denied)}");
         if (bad.Count > 0) lines.Add(stopReason ?? $"{bad.Count} PC(s): wrong user name or password: {Ips(bad)}");
         if (otherFail.Count > 0) lines.Add($"{otherFail.Count} PC(s) failed for another reason: {Ips(otherFail)}");
+        if (noSign.Count > 0) lines.Add($"{noSign.Count} device(s) with a PC maker's network card answer, but 135 and 445 are closed and nothing says Windows (a firewall that blocks everything, or not a PC): {Ips(noSign)}");
+        if (silent.Count > 0) lines.Add($"{silent.Count} device(s) did not answer at all: they are only in Windows' ARP table (turned off?). Run Get models again while they are on: {Ips(silent)}");
         foreach (var l in lines) _engine.Log("Windows summary: " + l);
 
         var advice = new List<string>();
         if (stopReason != null || bad.Count > 0) advice.Add(WindowsAdvice(WinFail.BadLogin, false));
         else if (denied.Count > 0) advice.Add(WindowsAdvice(WinFail.AccessDenied, false));
-        if (closed.Count + blocked.Count > 0) advice.Add(WindowsAdvice(WinFail.Blocked, false));
+        if (closed.Count + blocked.Count + noSign.Count > 0) advice.Add(WindowsAdvice(WinFail.Blocked, false));
         MessageBox.Show(this, string.Join("\n", lines) + "\n\n" + string.Join("\n\n", advice) + "\n\nThe result for each PC is in the Log tab.",
             AppInfo.Name + " – Windows models", MessageBoxButtons.OK, ok == 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
     }

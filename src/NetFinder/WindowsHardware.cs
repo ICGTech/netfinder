@@ -122,25 +122,48 @@ internal static class WinHardware
         }
     }
 
-    /// <summary>Disk names from the disk driver's list of devices (no sizes in the registry). USB sticks are left out.</summary>
+    /// <summary>
+    /// Every internal disk named in the registry (no sizes there): the disk driver's device list (Services\disk\Enum)
+    /// plus the storage controllers' map (HARDWARE\DEVICEMAP\Scsi, SATA and NVMe), so a second disk is never missed.
+    /// USB disks are left out.
+    /// </summary>
     public static List<string> Disks(IRegView r)
     {
+        var fromEnum = new List<HardwareText.DiskEntry>();
         const string en = @"SYSTEM\CurrentControlSet\Services\disk\Enum";
-        var res = new List<string>();
         foreach (var n in r.ValueNames(en).Where(v => v.Length > 0 && v.All(char.IsDigit)).OrderBy(v => int.Parse(v)))
         {
             if (Str(r.Value(en, n)) is not { } inst || HardwareText.DiskFromInstance(inst) is not { } fromId) continue;
             var name = Str(r.Value(@"SYSTEM\CurrentControlSet\Enum\" + inst, "FriendlyName")) ?? fromId;
-            var nvme = inst.Contains("NVMe", StringComparison.OrdinalIgnoreCase) || inst.StartsWith("NVME", StringComparison.OrdinalIgnoreCase);
-            res.Add(HardwareText.Disk(name, HardwareText.DiskKind(null, nvme ? 17 : null, name), 0));
+            fromEnum.Add(new(HardwareText.CleanDiskName(name), null, inst.Contains("NVMe", StringComparison.OrdinalIgnoreCase) ? 17 : null, 0));
         }
-        return res;
+        var fromMap = new List<HardwareText.DiskEntry>();
+        const string map = @"HARDWARE\DEVICEMAP\Scsi";
+        foreach (var port in r.SubKeys(map))
+        {
+            var pk = map + "\\" + port;
+            var driver = Str(r.Value(pk, "Driver")) ?? "";
+            if (driver.Contains("usb", StringComparison.OrdinalIgnoreCase) || driver.Contains("uasp", StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var bus in r.SubKeys(pk))
+            foreach (var target in r.SubKeys(pk + "\\" + bus))
+            foreach (var lun in r.SubKeys(pk + "\\" + bus + "\\" + target))
+            {
+                var lk = $@"{pk}\{bus}\{target}\{lun}";
+                if (!string.Equals(Str(r.Value(lk, "Type")), "DiskPeripheral", StringComparison.OrdinalIgnoreCase)) continue;
+                if (Str(r.Value(lk, "Identifier")) is { } id)
+                    fromMap.Add(new(HardwareText.DiskFromScsiIdentifier(id), null, driver.Contains("nvme", StringComparison.OrdinalIgnoreCase) ? 17 : null, 0));
+            }
+        }
+        return HardwareText.MergeDisks(fromEnum, fromMap).Select(HardwareText.Disk).ToList();
     }
 
-    /// <summary>Disks over WMI: MSFT_PhysicalDisk knows SSD / HDD (Windows 8 and later), Win32_DiskDrive otherwise.</summary>
+    /// <summary>
+    /// Disks over WMI: MSFT_PhysicalDisk knows SSD / HDD and the size (Windows 8 and later); Win32_DiskDrive fills in
+    /// anything it left out (and is all there is on Windows 7). USB disks are left out.
+    /// </summary>
     public static List<string> WmiDisks(string host, bool local, ConnectionOptions opt)
     {
-        var res = new List<string>();
+        var storage = new List<HardwareText.DiskEntry>();
         try
         {
             var st = new ManagementScope(local ? @"\\.\root\Microsoft\Windows\Storage" : $@"\\{host}\root\Microsoft\Windows\Storage", opt);
@@ -148,25 +171,30 @@ internal static class WinHardware
             foreach (var d in Rows(st, "MSFT_PhysicalDisk", "FriendlyName", "MediaType", "BusType", "Size"))
             {
                 var bus = Int(d.GetValueOrDefault("BusType"));
-                if (bus == 7 /* USB */ || Str(d.GetValueOrDefault("FriendlyName")) is not { } name) continue;
-                res.Add(HardwareText.Disk(name, HardwareText.DiskKind(Int(d.GetValueOrDefault("MediaType")), bus, name), Num(d.GetValueOrDefault("Size")) ?? 0));
+                if (bus is 7 or 12 or 13 /* USB, SD, MMC */ || Str(d.GetValueOrDefault("FriendlyName")) is not { } name) continue;
+                storage.Add(new(HardwareText.CleanDiskName(name), Int(d.GetValueOrDefault("MediaType")), bus, Num(d.GetValueOrDefault("Size")) ?? 0));
             }
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException) { }
-        if (res.Count > 0) return res;
+        var classic = new List<HardwareText.DiskEntry>();
         try
         {
             var cs = new ManagementScope(local ? @"\\.\root\cimv2" : $@"\\{host}\root\cimv2", opt);
-            foreach (var d in Rows(cs, "Win32_DiskDrive", "Model", "Size", "InterfaceType", "MediaType"))
+            foreach (var d in Rows(cs, "Win32_DiskDrive", "Model", "Size", "InterfaceType", "MediaType", "PNPDeviceID"))
             {
+                // A second SATA disk on a hot-plug port says "External hard disk media" (or "Removable"): it is still inside the PC.
+                // Only USB disks and card readers are left out.
                 var media = Str(d.GetValueOrDefault("MediaType")) ?? "";
-                if (Str(d.GetValueOrDefault("InterfaceType")) == "USB" || media.Contains("Removable", StringComparison.OrdinalIgnoreCase) ||
-                    media.Contains("External", StringComparison.OrdinalIgnoreCase) || Str(d.GetValueOrDefault("Model")) is not { } name) continue;
-                res.Add(HardwareText.Disk(name, HardwareText.DiskKind(null, null, name), Num(d.GetValueOrDefault("Size")) ?? 0));
+                var pnp = Str(d.GetValueOrDefault("PNPDeviceID")) ?? "";
+                var size = Num(d.GetValueOrDefault("Size")) ?? 0;
+                if (Str(d.GetValueOrDefault("InterfaceType")) == "USB" || pnp.StartsWith("USBSTOR", StringComparison.OrdinalIgnoreCase) ||
+                    pnp.StartsWith(@"SD\", StringComparison.OrdinalIgnoreCase) || (media.Contains("Removable", StringComparison.OrdinalIgnoreCase) && size == 0) ||
+                    Str(d.GetValueOrDefault("Model")) is not { } name) continue;
+                classic.Add(new(HardwareText.CleanDiskName(name), null, pnp.StartsWith("NVME", StringComparison.OrdinalIgnoreCase) || pnp.Contains("NVMe", StringComparison.OrdinalIgnoreCase) ? 17 : null, size));
             }
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException) { }
-        return res;
+        return HardwareText.MergeDisks(storage, classic).Select(HardwareText.Disk).ToList();
     }
 
     /// <summary>Graphics over WMI: names from Win32_VideoController, real memory from the registry through StdRegProv.</summary>

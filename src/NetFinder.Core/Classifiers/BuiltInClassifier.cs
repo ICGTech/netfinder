@@ -16,6 +16,8 @@ public sealed class BuiltInClassifier : IDeviceClassifier
     // Network cards of PCs. A PC maker's MAC alone is weak: Dell / HP / Lenovo also make servers (iDRAC, iLO), thin clients, switches…
     private const string PcMakers = @"intel corporate|realtek|dell inc|lenovo|micro-star|msi|gigabyte|giga-byte|asrock|liteon|azurewave|hon hai|foxconn|quanta|wistron|compal|pegatron|elitegroup|clevo|chicony|hewlett packard$|hp inc";
     private static readonly Regex PcMakerRx = new(PcMakers, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    /// <summary>The network card is from a PC maker (Dell, HP, Lenovo, Intel…): the device may be a PC, or a server / thin client of that maker.</summary>
+    public static bool IsPcMaker(string? vendor) => PcMakerRx.IsMatch(vendor ?? "");
     private static readonly int[] WindowsPorts = { 135, 139, 445, 3389, 5357, 5985 };
 
     // (regex on MAC vendor, type, points)

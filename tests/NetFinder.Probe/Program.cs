@@ -174,7 +174,8 @@ if (args.Length >= 1 && args[0] == "selftest")
     Check("disk hdd msft", NetFinder.Core.Net.HardwareText.Disk("ST1000DM010-2EP102", NetFinder.Core.Net.HardwareText.DiskKind(3, 11, "ST1000DM010-2EP102"), 1000204886016), "ST1000DM010-2EP102 (HDD, 1 TB)");
     Check("disk ssd by name", NetFinder.Core.Net.HardwareText.Disk("Samsung SSD 860 EVO 500GB", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "Samsung SSD 860 EVO 500GB"), 0), "Samsung SSD 860 EVO 500GB");
     Check("disk hdd by name", NetFinder.Core.Net.HardwareText.DiskKind(0, null, "WDC WD10EZEX-08WN4A0"), "HDD");
-    Check("disk unknown", NetFinder.Core.Net.HardwareText.DiskKind(0, 11, "KINGSTON SA400S37240G"), null);
+    Check("disk kingston by name", NetFinder.Core.Net.HardwareText.DiskKind(0, 11, "KINGSTON SA400S37240G"), "SSD");
+    Check("disk unknown", NetFinder.Core.Net.HardwareText.DiskKind(0, 11, "Generic Disk XYZ"), null);
     Check("disk from instance nvme", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"SCSI\Disk&Ven_NVMe&Prod_Samsung_SSD_970\5&2d6a7a0b&0&000000"), "NVMe Samsung SSD 970");
     Check("disk from instance ide", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"IDE\DiskST1000DM003-1CH162___________________CC47____\5&1a2b"), "ST1000DM003-1CH162 CC47");
     Check("disk from instance sata", NetFinder.Core.Net.HardwareText.DiskFromInstance(@"SCSI\Disk&Ven_&Prod_KINGSTON_SA400S3\4&1"), "KINGSTON SA400S3");
@@ -182,6 +183,49 @@ if (args.Length >= 1 && args[0] == "selftest")
     Check("gpu", NetFinder.Core.Net.HardwareText.Gpu("NVIDIA GeForce GTX 1050 Ti", 4294967296), "NVIDIA GeForce GTX 1050 Ti (4 GB)");
     Check("gpu rdp filtered", NetFinder.Core.Net.HardwareText.IsSoftwareDisplay("Microsoft Remote Display Adapter"), true);
     Check("gpu intel kept", NetFinder.Core.Net.HardwareText.IsSoftwareDisplay("Intel(R) HD Graphics 630"), false);
+    {
+        // two disks: SSD + HDD from two registry sources, and two identical disks in one PC
+        var H = typeof(NetFinder.Core.Net.HardwareText);
+        Check("disk kind samsung oem", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "SAMSUNG MZ7LN256HAJQ-000H1"), "SSD");
+        Check("disk kind toshiba hdd", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "TOSHIBA DT01ACA100"), "HDD");
+        Check("disk kind st hdd", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "ST1000DM010-2EP102"), "HDD");
+        Check("disk kind wdc hdd", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "WDC WD10EZEX-75WN4A0"), "HDD");
+        Check("disk kind wd ssd", NetFinder.Core.Net.HardwareText.DiskKind(null, null, "WDS500G2B0A-00SM50"), "SSD");
+        Check("same disk prefix", NetFinder.Core.Net.HardwareText.SameDisk("NVMe Samsung SSD 970", "Samsung SSD 970 EVO Plus 500GB"), true);
+        Check("same disk different", NetFinder.Core.Net.HardwareText.SameDisk("ST1000DM010-2EP102", "SAMSUNG MZ7LN256HAJQ-000H1"), false);
+        Check("clean disk name", NetFinder.Core.Net.HardwareText.CleanDiskName("ST1000DM003-1CH162 ATA Device"), "ST1000DM003-1CH162");
+        Check("clean disk name nvme", NetFinder.Core.Net.HardwareText.CleanDiskName("Samsung SSD 970 EVO 500GB NVMe Disk Device"), "Samsung SSD 970 EVO 500GB");
+        Check("scsi id ata", NetFinder.Core.Net.HardwareText.DiskFromScsiIdentifier("ATA     ST1000DM010-2EP1CC43"), "ST1000DM010-2EP1");
+        Check("scsi id nvme", NetFinder.Core.Net.HardwareText.DiskFromScsiIdentifier("NVMe    Samsung SSD 970 2B2Q"), "Samsung SSD 970");
+        Check("scsi id vendor", NetFinder.Core.Net.HardwareText.DiskFromScsiIdentifier("VMware  Virtual disk    2.0 "), "VMware Virtual disk");
+        var E = (string n, int? m, int? b, long sz) => new NetFinder.Core.Net.HardwareText.DiskEntry(n, m, b, sz);
+        // registry: Services\disk\Enum had only the SSD; DEVICEMAP\Scsi has both
+        var merged = NetFinder.Core.Net.HardwareText.MergeDisks(
+            new() { E("SAMSUNG MZ7LN256HAJQ-000H1", null, null, 0) },
+            new() { E("SAMSUNG MZ7LN256HAJQ-000", null, null, 0), E("ST1000DM010-2EP1", null, null, 0) });
+        Check("merge ssd+hdd", string.Join(" | ", merged.Select(NetFinder.Core.Net.HardwareText.Disk)), "SAMSUNG MZ7LN256HAJQ-000H1 (SSD) | ST1000DM010-2EP1 (HDD)");
+        // WMI: MSFT_PhysicalDisk + Win32_DiskDrive, two identical HDDs stay two
+        merged = NetFinder.Core.Net.HardwareText.MergeDisks(
+            new() { E("Samsung SSD 860 EVO 500GB", 4, 11, 500107862016), E("ST1000DM010-2EP102", 3, 11, 1000204886016), E("ST1000DM010-2EP102", 3, 11, 1000204886016) },
+            new() { E("Samsung SSD 860 EVO 500GB", null, null, 500105249280), E("ST1000DM010-2EP102", null, null, 1000202273280), E("ST1000DM010-2EP102", null, null, 1000202273280) });
+        Check("merge two identical", string.Join(" | ", merged.Select(NetFinder.Core.Net.HardwareText.Disk)),
+            "Samsung SSD 860 EVO 500GB (500 GB) | ST1000DM010-2EP102 (HDD, 1 TB) | ST1000DM010-2EP102 (HDD, 1 TB)");
+        // MSFT_PhysicalDisk missed the HDD (hot-plug SATA port): Win32_DiskDrive adds it with its size
+        merged = NetFinder.Core.Net.HardwareText.MergeDisks(
+            new() { E("Samsung SSD 860 EVO 500GB", 4, 11, 500107862016) },
+            new() { E("Samsung SSD 860 EVO 500GB", null, null, 500105249280), E("TOSHIBA DT01ACA100", null, null, 1000204886016) });
+        Check("merge adds missing hdd", string.Join(" | ", merged.Select(NetFinder.Core.Net.HardwareText.Disk)),
+            "Samsung SSD 860 EVO 500GB (500 GB) | TOSHIBA DT01ACA100 (HDD, 1 TB)");
+        // the Log tab's per-device filter
+        var f = NetFinder.Core.Model.LogFilter.For("10.0.0.1", "64:00:6A:55:0E:5E", new[] { "madapc0165.almada.local", "*", null }, false)!;
+        Check("log ip", f.IsMatch("21:27:14  Windows 10.0.0.1 (Dell): ports closed"), true);
+        Check("log ip not prefix", f.IsMatch("21:27:14  Windows 10.0.0.12: VMware"), false);
+        Check("log ip in list", f.IsMatch("Windows summary: 2 PC(s): 10.0.0.14, 10.0.0.1"), true);
+        Check("log ip not suffix", f.IsMatch("Windows 110.0.0.1: x"), false);
+        Check("log mac dash", f.IsMatch("seen 64-00-6a-55-0e-5e"), true);
+        Check("log name", f.IsMatch("NetBIOS: MADAPC0165 is in ALMADA"), true);
+        Check("log other", f.IsMatch("ARP sweep pass 1 on Ethernet: 65533 addresses"), false);
+    }
     Console.WriteLine(fails == 0 ? "ALL OK" : $"{fails} FAILED");
     return;
 }

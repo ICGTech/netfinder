@@ -4,6 +4,11 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.10
+- Windows PCs: every hard disk is listed (SSD and HDD), each on its own line.
+- The Log tab shows only the lines about the selected device. Untick the box to see everything.
+- Get models also tries every Dell / HP / Lenovo device, and says why one could not be read (firewall, turned off…).
+
 ## 1.1.9
 - Windows PCs: hard disks (model, size, SSD or HDD), drive C: size and free space, and the graphics card with its memory.
 - They show under the model in the device panel, in All details, and in the Excel / CSV / HTML export.
