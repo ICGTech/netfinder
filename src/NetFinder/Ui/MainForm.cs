@@ -396,26 +396,89 @@ public sealed class MainForm : Form
     private async Task InstallNpcapAsync(Action<string> setText, Action<bool> setEnabled)
     {
         setEnabled(false);
-        setText("Downloading…");
         try
         {
-            var progress = new Progress<int>(p => setText(p >= 100 ? "Installing…" : $"Downloading {p}%"));
-            await NpcapInstaller.DownloadAndRunAsync(progress, _lifetime.Token);
+            // 1) an installer the user already downloaded?
+            string? installer = NpcapInstaller.FindLocalInstaller();
+            if (installer != null && MessageBox.Show(this,
+                    $"Found the Npcap installer {Path.GetFileName(installer)} in\n{Path.GetDirectoryName(installer)}\n\nInstall it?",
+                    AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                installer = null;
+
+            // 2) download it from npcap.com / nmap.org
+            if (installer == null)
+            {
+                setText("Downloading…");
+                try { installer = await NpcapInstaller.DownloadAsync(new Progress<int>(p => setText($"Downloading {p}%")), _lifetime.Token); }
+                catch (NpcapInstaller.UnreachableException ex)
+                {
+                    _engine.Log("Npcap download failed: " + ex.Message.Replace('\n', ' '));
+                    // 3) offline / site blocked: let the user pick a file copied from elsewhere
+                    installer = AskForNpcapInstaller(ex.Message);
+                    if (installer == null) return;
+                }
+            }
+
+            setText("Installing…");
+            await NpcapInstaller.RunInstallerAsync(installer, _lifetime.Token);
             if (Core.Net.WindowsNet.NpcapInstalled)
             {
                 MessageBox.Show(this, $"Npcap is installed. {AppInfo.Name} will restart to use it.", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                Application.Restart();
+                RestartApp();
                 return;
             }
+            MessageBox.Show(this, "Npcap was not installed (the setup was closed or failed).", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            _engine.Log("Npcap download failed: " + ex.Message);
-            MessageBox.Show(this, "Could not download Npcap automatically. The download page will open in your browser.\n\n" + ex.Message, AppInfo.Name);
-            Core.Actions.Launcher.Open(NpcapInstaller.DownloadPage);
+            _engine.Log("Npcap install failed: " + ex.Message);
+            MessageBox.Show(this, "Npcap could not be installed:\n\n" + ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
-        setText(Core.Net.WindowsNet.NpcapInstalled ? "Npcap ✓" : "Install Npcap");
-        setEnabled(true);
+        finally
+        {
+            if (!IsDisposed)
+            {
+                setText(Core.Net.WindowsNet.NpcapInstalled ? "Npcap ✓" : "Install Npcap");
+                setEnabled(true);
+            }
+        }
+    }
+
+    /// <summary>Shown when npcap.com can't be reached. Returns a chosen installer file, or null.</summary>
+    private string? AskForNpcapInstaller(string technical)
+    {
+        var choose = new TaskDialogButton("Choose installer file…");
+        var open = new TaskDialogButton("Open npcap.com in browser");
+        var page = new TaskDialogPage
+        {
+            Caption = AppInfo.Name,
+            Icon = TaskDialogIcon.Warning,
+            Heading = "This PC can't reach the Npcap website",
+            Text = "npcap.com and nmap.org could not be reached: there is no internet, or the site is blocked on this network.\n\n" +
+                   "Download the Npcap installer on another PC or phone from npcap.com (a file like npcap-1.80.exe), " +
+                   "copy it to this PC (e.g. with a USB stick), then press \"Choose installer file…\".\n\n" +
+                   $"Tip: if you put it in your Downloads folder, {AppInfo.Name} finds it by itself next time.",
+            Buttons = { choose, open, TaskDialogButton.Cancel },
+            Expander = new TaskDialogExpander(technical) { CollapsedButtonText = "Technical details" },
+        };
+        var result = TaskDialog.ShowDialog(this, page);
+        if (result == open) { Core.Actions.Launcher.Open(NpcapInstaller.DownloadPage); return null; }
+        if (result != choose) return null;
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Choose the Npcap installer",
+            Filter = "Npcap installer (npcap-*.exe)|npcap*.exe|Programs (*.exe)|*.exe",
+            InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
+        };
+        return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
+    }
+
+    private void RestartApp()
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true }); }
+        catch { return; }
+        Close();
     }
 
     // ───────────────────────────── updates ─────────────────────────────
