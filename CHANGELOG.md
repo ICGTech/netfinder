@@ -4,6 +4,9 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.12
+- PCs blocked by their firewall: the fix is now two netsh lines that work in Command Prompt (the old PowerShell line broke when pasted there).
+
 ## 1.1.11
 - Every disk shows its size (also when the PC is read over port 445), for example "WD2002FYPS (HDD, 2 TB)".
 - All drive letters with size and free space: C:, D:, E:…, each on its own line.

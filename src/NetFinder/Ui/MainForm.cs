@@ -1453,15 +1453,19 @@ public sealed class MainForm : Form
         "Then run gpupdate /force on the PCs (or restart them) and try again.";
 
     /// <summary>Run once as administrator on a PC whose firewall blocks remote management: turns on Windows' own WMI and file-sharing rules.</summary>
-    internal const string AllowRemoteCommand =
-        "powershell -NoProfile -Command \"Get-NetFirewallRule | ? { $_.Name -like 'WMI-*-In-TCP*' -or $_.Name -like 'FPS-SMB-In-TCP*' } | Enable-NetFirewallRule\"";
+    /// <summary>Plain netsh lines: they work pasted into Command Prompt or PowerShell alike (the group names are the English Windows ones).</summary>
+    internal static readonly string[] AllowRemoteCommands =
+    {
+        "netsh advfirewall firewall set rule group=\"Windows Management Instrumentation (WMI)\" new enable=yes",
+        "netsh advfirewall firewall set rule group=\"File and Printer Sharing\" new enable=yes",
+    };
 
     /// <summary>What to do about a failure, in plain words.</summary>
     private static string WindowsAdvice(WinFail kind, bool single) => kind switch
     {
         WinFail.Closed or WinFail.Blocked =>
             (single ? "Its firewall blocks remote management. " : "Their firewall blocks remote management. ") +
-            $"Open it once on {(single ? "that PC" : "each of them")}: Command Prompt as administrator there, then run (the line is also in the Log tab):\n{AllowRemoteCommand}\n" +
+            $"Open it once on {(single ? "that PC" : "each of them")}: Command Prompt as administrator there, then run these two lines (they are also in the Log tab):\n{string.Join("\n", AllowRemoteCommands)}\n" +
             "If an antivirus has its own firewall, allow it there instead.\n\nFor all PCs at once instead: " + WmiFirewallGpo,
         WinFail.BadLogin => "Check the user name and password. In a domain, write the user as DOMAIN\\user (e.g. ALMADA\\administrator) or user@domain.local.",
         WinFail.AccessDenied or WinFail.NotAdmin => "Use an account that is administrator on that PC: a domain admin (DOMAIN\\user or user@domain.local), " +
@@ -1623,7 +1627,10 @@ public sealed class MainForm : Form
         if (silent.Count > 0) lines.Add($"{silent.Count} device(s) did not answer at all: they are only in Windows' ARP table (turned off?). Run Get models again while they are on: {Ips(silent)}");
         foreach (var l in lines) _engine.Log("Windows summary: " + l);
         if (closed.Count + blocked.Count + noSign.Count > 0)
-            _engine.Log("Windows summary: to open a PC's firewall, run this once on it as administrator: " + AllowRemoteCommand);
+        {
+            _engine.Log("Windows summary: to open a PC's firewall, run these two lines once on it, in Command Prompt as administrator:");
+            foreach (var c in AllowRemoteCommands) _engine.Log("Windows summary:   " + c);
+        }
 
         var advice = new List<string>();
         if (stopReason != null || bad.Count > 0) advice.Add(WindowsAdvice(WinFail.BadLogin, false));
