@@ -302,6 +302,9 @@ internal sealed class NavList : Control
     public event Action<string>? SelectedChanged;
     private readonly List<(Item Item, Rectangle R)> _layout = new();
     private int _hover = -1;
+    // With very big Windows text the menu can be taller than the space above the adapter box:
+    // then it scrolls with the mouse wheel and shows a thin bar, instead of being cut.
+    private int _scroll, _contentHeight;
 
     public NavList() { Ui.Painted(this); }
     private int S(int v) => LogicalToDeviceUnits(v);
@@ -322,7 +325,7 @@ internal sealed class NavList : Control
     private void DoLayout()
     {
         _layout.Clear();
-        var y = S(14);
+        var y = S(14) - _scroll;
         var first = true;
         foreach (var i in Items)
         {
@@ -334,6 +337,19 @@ internal sealed class NavList : Control
             y += h + S(2);
             first = false;
         }
+        _contentHeight = y + _scroll + S(12);
+        var max = Math.Max(0, _contentHeight - Height);
+        if (_scroll > max) { _scroll = max; DoLayout(); }
+    }
+
+    protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(); }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        var max = Math.Max(0, _contentHeight - Height);
+        var next = Math.Clamp(_scroll - e.Delta * S(40) / 120, 0, max);
+        if (next != _scroll) { _scroll = next; _hover = -1; Invalidate(); }
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -363,6 +379,13 @@ internal sealed class NavList : Control
                 sel ? P.AccentSoftText : i.Count == 0 ? Theme.Mix(P.Muted, P.Surface2, 0.35) : P.Muted, Ui.Line);
             if (i.Sub != null)
                 TextRenderer.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), Ui.LineHeight(Theme.Small) + S(2)), sel ? P.AccentSoftText : P.Muted, Ui.Line);
+        }
+        if (_contentHeight > Height && Height > S(20))
+        {
+            var track = Height - S(8);
+            var thumb = Math.Max(S(24), track * Height / _contentHeight);
+            var top = S(4) + (track - thumb) * _scroll / Math.Max(1, _contentHeight - Height);
+            Ui.FillRound(g, new Rectangle(Width - S(6), top, S(4), thumb), S(2), Theme.Mix(P.Muted, P.Surface2, 0.45));
         }
     }
 
