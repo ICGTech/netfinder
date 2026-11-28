@@ -222,7 +222,8 @@ internal sealed class SwitchPortsForm : Form
         StartPosition = FormStartPosition.CenterParent;
         ShowInTaskbar = false;
         var line = TextRenderer.MeasureText("Wg", Theme.Base).Height;
-        ClientSize = new Size(line * 64, line * 34);
+        var screen = Screen.FromPoint(Cursor.Position).WorkingArea;
+        ClientSize = new Size(Math.Min(line * 64, screen.Width * 9 / 10), Math.Min(line * 34, screen.Height * 8 / 10));
         MinimumSize = new Size(line * 40, line * 20);
         var P = Theme.P;
         BackColor = P.Surface;
@@ -290,6 +291,8 @@ internal sealed class SwitchPortsForm : Form
         _grid.DefaultCellStyle.Padding = new Padding(LogicalToDeviceUnits(4), 0, LogicalToDeviceUnits(4), 0);
         _grid.ColumnHeadersDefaultCellStyle.BackColor = P.Surface2;
         _grid.ColumnHeadersDefaultCellStyle.ForeColor = P.Muted;
+        _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = P.Surface2; // else the header of the current column turns blue
+        _grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = P.Muted;
         _grid.ColumnHeadersDefaultCellStyle.Font = Theme.Bold;
         _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
