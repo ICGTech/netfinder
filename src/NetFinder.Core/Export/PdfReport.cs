@@ -39,6 +39,9 @@ public static class PdfReport
         doc.Info.Author = AppInfo.Company;
         doc.Info.Creator = $"{AppInfo.Name} {AppInfo.Version}";
 
+        // short vendor names ("Hangzhou Hikvision Digital Technology Co.,Ltd." → "Hikvision") keep the rows low
+        if (IndexOf(columns, "Vendor") is var vc and >= 0)
+            rows = rows.Select(r => { var c = (string[])r.Clone(); c[vc] = DeviceText.ShortVendor(c[vc]); return c; }).ToList();
         var body = Font(BodySize, false);
         var bold = Font(BodySize, true);
         var images = new List<XImage>();

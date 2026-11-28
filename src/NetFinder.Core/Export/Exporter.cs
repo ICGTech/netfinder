@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.IO.Compression;
 using System.Net;
 using System.Text;
@@ -17,6 +18,20 @@ public static class DeviceText
         if (d.Reachable) return "My subnet";
         if (d.BehindNvr != null) return $"Behind NVR {d.BehindNvr}";
         return $"Other: {Subnet.Of(d.Ip, 24)}";
+    }
+
+    /// <summary>"Hewlett Packard" → "HP", "Dell Inc." → "Dell", "Hangzhou Hikvision Digital Technology Co.,Ltd." → "Hikvision".</summary>
+    public static string ShortVendor(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v) || v.StartsWith('(')) return v ?? "";
+        if (Regex.IsMatch(v, @"^(hewlett|hp\b)", RegexOptions.IgnoreCase)) return "HP";
+        if (Regex.IsMatch(v, @"hikvision", RegexOptions.IgnoreCase)) return "Hikvision";
+        if (Regex.IsMatch(v, @"dahua", RegexOptions.IgnoreCase)) return "Dahua";
+        if (Regex.IsMatch(v, @"^tp-?link", RegexOptions.IgnoreCase)) return "TP-Link";
+        var s = Regex.Replace(v, @"\s*\([^)]*\)", "");
+        s = Regex.Replace(s, @"[,.]?\s*\b(inc|incorporated|corp|corporate|corporation|co|ltd|limited|llc|gmbh|ag|s\.?a|technologies|technology|electronics|international)\b\.?", "", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, @"[\s,.]+$", "").Trim();
+        return s.Length >= 2 ? s : v;
     }
 }
 

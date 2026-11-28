@@ -754,6 +754,7 @@ public sealed class MainForm : Form
         _grid.ClearSelection();
         row.Selected = true;
         _grid.CurrentCell = row.Cells["Ip"];
+        _grid.FirstDisplayedScrollingColumnIndex = 0;
     }
 
     private async Task ShotWatchDialogAsync(string path)
@@ -1307,19 +1308,7 @@ public sealed class MainForm : Form
         SetVisible(row, MatchesFilter(row));
     }
 
-    /// <summary>"Hewlett Packard" → "HP", "Dell Inc." → "Dell", "Hangzhou Hikvision Digital Technology Co.,Ltd." → "Hikvision".</summary>
-    internal static string ShortVendor(string? v)
-    {
-        if (string.IsNullOrWhiteSpace(v) || v.StartsWith('(')) return v ?? "";
-        if (Regex.IsMatch(v, @"^(hewlett|hp\b)", RegexOptions.IgnoreCase)) return "HP";
-        if (Regex.IsMatch(v, @"hikvision", RegexOptions.IgnoreCase)) return "Hikvision";
-        if (Regex.IsMatch(v, @"dahua", RegexOptions.IgnoreCase)) return "Dahua";
-        if (Regex.IsMatch(v, @"^tp-?link", RegexOptions.IgnoreCase)) return "TP-Link";
-        var s = Regex.Replace(v, @"\s*\([^)]*\)", "");
-        s = Regex.Replace(s, @"[,.]?\s*\b(inc|incorporated|corp|corporate|corporation|co|ltd|limited|llc|gmbh|ag|s\.?a|technologies|technology|electronics|international)\b\.?", "", RegexOptions.IgnoreCase);
-        s = Regex.Replace(s, @"[\s,.]+$", "").Trim();
-        return s.Length >= 2 ? s : v;
-    }
+    internal static string ShortVendor(string? v) => Core.Export.DeviceText.ShortVendor(v);
 
     private void SetVisible(DataGridViewRow row, bool visible)
     {
@@ -2182,6 +2171,7 @@ public sealed class MainForm : Form
         _grid.ClearSelection();
         row.Selected = true;
         _grid.CurrentCell = row.Cells["Ip"];
+        _grid.FirstDisplayedScrollingColumnIndex = 0;
     }
 
     /// <summary>When DHCP gives a watched device a new IP, the watch follows it (by its MAC).</summary>

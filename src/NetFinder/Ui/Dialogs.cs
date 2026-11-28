@@ -100,7 +100,7 @@ internal static class Dialogs
         };
         var line = TextRenderer.MeasureText("Wg", Theme.Base).Height;
         list.Height = line * 3 / 2 * 11 + line * 2;
-        foreach (var (title, part) in new[] { ("Type", 0.22), ("IP address", 0.19), ("Name", 0.27), ("Model", 0.32) })
+        foreach (var (title, part) in new[] { ("Type", 0.26), ("IP address", 0.18), ("Name", 0.25), ("Model", 0.31) })
             list.Columns.Add(title, (int)((d.Width - SystemInformation.VerticalScrollBarWidth - S(6)) * part));
         foreach (var p in devices)
             list.Items.Add(new ListViewItem(new[] { p.Type, p.Ip, p.Name, p.Model }) { Checked = p.On, Tag = p });
