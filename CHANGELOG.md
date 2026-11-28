@@ -4,6 +4,9 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.19
+- Scan empties the list right away, then shows the devices one after another as they answer, with an "answered so far" count.
+
 ## 1.1.18
 - Scan no longer brings back devices that are gone: old entries Windows remembers (ARP table) count only when the device answers now.
 - New type "Windows Server", listed under Servers & VMs: found by the Windows edition, or by domain controller, DNS and other server ports.

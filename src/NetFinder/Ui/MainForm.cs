@@ -758,11 +758,18 @@ public sealed class MainForm : Form
             if (_engine.Store.Find("10.0.0.43") is { } t43) _engine.Store.Touch(t43, x => x.Info["Serial number"] = "RESTORE-TEST");
             var before = _engine.Store.Count;
             StartOver();
-            Core.Demo.DemoNetwork.Fill(_engine);
-            await Task.Delay(1500);
+            var rightAfter = _rows.Count;
+            Core.Demo.DemoNetwork.Fill(_engine); // all at once, like Npcap finding a whole subnet in a second
+            await Task.Delay(250);
+            var atPause = _rows.Count;
+            await Task.Delay(600);
+            var filling = _rows.Count;
+            Shot(Path.Combine(dir, "dark-new-scan-filling.png"));
+            await Task.Delay(2400);
+            var reveal = $"reveal: {rightAfter} rows right after Scan, {atPause} at 0.25 s, {filling} at 0.85 s, {_rows.Count} at 3.25 s, still revealing: {_revealing}, timer {_uiTimer.Interval} ms";
             var serial = _engine.Store.Find("10.0.0.43") is { } back ? back.Info.GetValueOrDefault("Serial number") : null;
             File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}\r\n" +
-                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n" +
+                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n{reveal}\r\n" +
                 string.Join("\r\n", rc));
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
@@ -1251,6 +1258,25 @@ public sealed class MainForm : Form
         var n = _engine.Store.Count;
         _engine.Store.StartOver();
         _engine.Log($"New scan: the list starts empty and shows the devices that answer now ({n} were listed before; what was read from them comes back when they answer)");
+        // Empty the list on screen now (not at the next refresh, when the devices that answered at once would
+        // already be back), then show the devices one after another so the new list is seen filling.
+        _revealFrom = DateTime.Now;
+        _revealing = true;
+        FlushUi();
+        UpdateCounters();
+        _uiTimer.Interval = 90;
+        _grid.Refresh();
+    }
+
+    /// <summary>After "Scan" emptied the list: new rows come in a few at a time, top to bottom, for about 2 s.</summary>
+    private bool _revealing;
+    private DateTime _revealFrom;
+    private static readonly TimeSpan RevealPause = TimeSpan.FromMilliseconds(500);
+
+    private void EndReveal()
+    {
+        _revealing = false;
+        _uiTimer.Interval = 400;
     }
 
     // ───────────────────────────── UI refresh ─────────────────────────────
@@ -1292,10 +1318,26 @@ public sealed class MainForm : Form
             }
         }
         ProcessWatch();
-        if (_dirty.IsEmpty && !changed) { RefreshSelected(); return; }
+        if (_dirty.IsEmpty && !changed)
+        {
+            if (_revealing && DateTime.Now - _revealFrom > RevealPause) EndReveal();
+            RefreshSelected();
+            return;
+        }
 
         var sortCol = _grid.SortedColumn; var sortDir = _grid.SortOrder;
-        foreach (var key in _dirty.Keys.ToList())
+        var keys = _dirty.Keys.ToList();
+        if (_revealing)
+        {
+            // rows already shown are updated; new ones wait for their turn (lowest IP first)
+            var waiting = keys.Where(k => !_rows.ContainsKey(k)).ToList();
+            var take = DateTime.Now - _revealFrom < RevealPause ? 0 : Math.Max(1, (int)Math.Ceiling(_engine.Store.Count / 20.0));
+            var next = waiting.Select(k => (k, d: _engine.Store.Find(k))).OrderBy(x => x.d?.Ip == null ? long.MaxValue : IpKey(x.d.Ip.ToString()))
+                .Take(take).Select(x => x.k).ToHashSet();
+            keys = keys.Where(k => _rows.ContainsKey(k) || next.Contains(k)).ToList();
+            if (take > 0 && waiting.Count <= take) EndReveal();
+        }
+        foreach (var key in keys)
         {
             if (!_dirty.TryRemove(key, out var d)) continue;
             if (_engine.Store.Find(key) != d) continue;
@@ -1371,8 +1413,9 @@ public sealed class MainForm : Form
     private void UpdateSummary()
     {
         var shown = _rows.Values.Count(r => r.Visible);
-        var parts = new List<string> { _nav.SelectedKey == "all" && _txtFilter.Text.Trim().Length == 0 ? $"{shown} found" : $"{shown} shown" };
-        if (_scanCts != null) parts.Add(_lastList != null && _startedEmpty ? "new scan: the list started empty, scanning…" : "scanning…");
+        var all = _nav.SelectedKey == "all" && _txtFilter.Text.Trim().Length == 0;
+        var parts = new List<string> { !all ? $"{shown} shown" : _scanCts != null && _startedEmpty ? $"{shown} answered so far" : $"{shown} found" };
+        if (_scanCts != null) parts.Add(_startedEmpty ? "new scan: the list started empty, scanning…" : "scanning…");
         else if (_lastScan is { } t)
         {
             parts.Add($"scan finished {t:HH:mm}");
