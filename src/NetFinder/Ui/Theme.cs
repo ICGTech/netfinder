@@ -76,7 +76,7 @@ internal static class Theme
         g.SmoothingMode = smooth;
         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
         var hasGlyph = TypeGlyphs.TryGetValue(type, out var glyph);
-        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * 0.86), hasGlyph), r, TypeInk(type), flags);
+        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * 0.86 * GlyphScale(type)), hasGlyph), r, TypeInk(type), flags);
     }
 
     private static readonly Dictionary<string, Color> TypeColors = new()
@@ -138,6 +138,9 @@ internal static class Theme
         [ThisPc] = "\U0001F3E0",                   // house
     };
 
+    /// <summary>The server symbol (not an emoji: Windows draws it from Segoe UI Symbol) is drawn small; make it as big as the others.</summary>
+    private static float GlyphScale(string type) => type == DeviceTypes.WindowsServer ? 1.45f : 1f;
+
     private static readonly Dictionary<(int, bool), Font> GlyphFonts = new();
 
     /// <summary>Font sized in pixels for an icon of that height (so it fits at any Windows scaling).</summary>
@@ -164,7 +167,7 @@ internal static class Theme
         g.SmoothingMode = smooth;
         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
         var hasGlyph = TypeGlyphs.TryGetValue(type, out var glyph);
-        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor(r.Height, hasGlyph), r, Color.White, flags);
+        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * GlyphScale(type)), hasGlyph), r, Color.White, flags);
     }
 
     /// <summary>The type icon as a picture (device tab header, menus), on an opaque background.</summary>
