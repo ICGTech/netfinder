@@ -28,7 +28,7 @@ jobs:
             $env:NETFINDER_SCREENSHOT = Join-Path $PWD $run.dir
             $env:NETFINDER_TEXT_SCALE = $run.scale
             $p = Start-Process dist\NetFinder.exe -PassThru
-            if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Host "timed out" }
+            if (-not $p.WaitForExit(200000)) { $p.Kill(); Write-Host "timed out" }
             Get-ChildItem $run.dir
             if (Test-Path "$($run.dir)\error.txt") { Get-Content "$($run.dir)\error.txt" }
           }

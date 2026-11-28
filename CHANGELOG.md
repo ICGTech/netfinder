@@ -8,6 +8,7 @@ Keep each line short and simple.
 - Printers: toner / ink left for each color, pages printed and the printer's status (read over SNMP), in a new "Ink / toner" column and in the device panel.
 - Switches: which port each device is plugged into (new "Switch port" column), and the switch's ports as squares: up, down, and who is on each. "Show ports…" lists them all.
 - SNMP community: "public" is tried first; type another one in the device panel or in Settings.
+- Fixed: opening a device's web page could show an empty Chrome window. Links now open in your normal browser, as a new tab.
 
 ## 1.1.20
 - Repeat and Deep scan moved from the ☰ menu to the top bar, next to Scan: tick what you need before you scan.

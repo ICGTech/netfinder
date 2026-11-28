@@ -830,6 +830,7 @@ public sealed class MainForm : Form
             // 1.1.17: right-clicks on rows, with the Watch column shown and hidden (it used to fail when hidden)
             var rc = await RightClickCheckAsync(dir);
             rc.Add(await ArpTableCheckAsync());
+            rc.Add(await BrowserCheckAsync());
             // a new scan in demo mode: the list empties, the devices come back with what was read from them
             if (_engine.Store.Find("10.0.0.43") is { } t43) _engine.Store.Touch(t43, x => x.Info["Serial number"] = "RESTORE-TEST");
             var before = _engine.Store.Count;
@@ -870,6 +871,55 @@ public sealed class MainForm : Form
             .Select(i => string.IsNullOrEmpty(i.Text) ? i.GetType().Name : i.Text).ToList();
         return $"header at {ClientSize.Width}px: {(hidden.Count == 0 ? "all items shown" : "HIDDEN: " + string.Join(", ", hidden))}, range box {_rangeHost.Width}px, " +
                $"compact: {(_rangeLabel.Visible ? "" : "no Range label, ")}{(_brand.Compact ? "logo only, " : "")}Deep \"{_chkDeep.Text}\", Listening \"{_btnListen.Text}\"; filter box {_filterBox.Width}px in the side menu";
+    }
+
+    /// <summary>
+    /// Screenshot self-check: does a web link really load in a browser? (1.1.20: Chrome opened an empty window.)
+    /// A tiny web server on this PC counts which link the browser asked for: the new way (through Explorer) first, then the old one.
+    /// </summary>
+    private static async Task<string> BrowserCheckAsync()
+    {
+        var hits = new ConcurrentQueue<string>();
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var cts = new CancellationTokenSource();
+        var serve = Task.Run(async () =>
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                try
+                {
+                    using var c = await listener.AcceptTcpClientAsync(cts.Token);
+                    var st = c.GetStream();
+                    var buf = new byte[8192];
+                    var n = await st.ReadAsync(buf, cts.Token);
+                    var head = Encoding.ASCII.GetString(buf, 0, n);
+                    var ua = Regex.Match(head, @"User-Agent: ([^\r\n]+)").Groups[1].Value;
+                    hits.Enqueue(head.Split("\r\n")[0] + " | " + (ua.Contains("Edg/") ? "Edge" : ua.Contains("Chrome/") ? "Chrome" : ua.Contains("Firefox") ? "Firefox" : ua));
+                    const string body = "<html><body>NetFinder link check</body></html>";
+                    await st.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n{body}"), cts.Token);
+                }
+                catch { if (cts.IsCancellationRequested) return; }
+            }
+        });
+        async Task<string> Try(string path, Func<string, bool> open)
+        {
+            try { if (!open($"http://127.0.0.1:{port}{path}")) return $"{path}: not tried (no desktop Explorer)"; }
+            catch (Exception ex) { return $"{path}: could not start ({ex.Message})"; }
+            for (var i = 0; i < 40 && !hits.Any(h => h.Contains(path)); i++) await Task.Delay(250);
+            return $"{path}: " + (hits.FirstOrDefault(h => h.Contains(path)) is { } h ? "page loaded in " + h.Split(" | ")[1] : "NOT loaded within 10 s");
+        }
+        bool admin;
+        using (var id = System.Security.Principal.WindowsIdentity.GetCurrent())
+            admin = new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        var explorers = System.Diagnostics.Process.GetProcessesByName("explorer").Length;
+        var a = await Try("/through-explorer", Launcher.OpenInUserBrowser);
+        var b = await Try("/as-admin", u => { Launcher.OpenElevated(u); return true; });
+        cts.Cancel();
+        listener.Stop();
+        try { await serve; } catch { }
+        return $"web links (admin {admin}, explorer processes {explorers}): {a}; {b}";
     }
 
     /// <summary>Screenshot self-check on a real Windows: the ARP table read with GetIpNetTable2 must match "arp -a".</summary>

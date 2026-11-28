@@ -5,8 +5,36 @@ namespace NetFinder.Core.Actions;
 
 public static class Launcher
 {
-    /// <summary>Open a URL / file / UNC path with the default Windows handler.</summary>
-    public static void Open(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+    /// <summary>Open a URL / file / UNC path with the default Windows handler (web links: in the user's own browser, see <see cref="OpenInUserBrowser"/>).</summary>
+    public static void Open(string target)
+    {
+        if (IsWebLink(target) && OpenInUserBrowser(target)) return;
+        OpenElevated(target);
+    }
+
+    /// <summary>The plain way: the program opened runs as administrator, like NetFinder.</summary>
+    public static void OpenElevated(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+
+    public static bool IsWebLink(string t) => t.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || t.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// NetFinder runs as administrator, so a browser it starts runs as administrator too. When the user's Chrome is
+    /// already open (not as administrator) the two can't talk, and Chrome shows an empty window instead of the page.
+    /// Explorer never runs as administrator: started from here it hands the link to the desktop's own Explorer, which
+    /// opens it in the user's normal browser (a new tab in the Chrome that is already open). False when it could not.
+    /// </summary>
+    public static bool OpenInUserBrowser(string url)
+    {
+        if (!OperatingSystem.IsWindows() || url.Contains('"')) return false;
+        try
+        {
+            if (Process.GetProcessesByName("explorer").Length == 0) return false; // no desktop shell to hand it to
+            var explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+            using var p = Process.Start(new ProcessStartInfo(explorer, "\"" + url + "\"") { UseShellExecute = false });
+            return p != null;
+        }
+        catch { return false; }
+    }
 
     /// <summary>Open a link whose handler may not be installed (vnc://, rtsp://…); explains what to install if not.</summary>
     public static void OpenWithHint(string target, string missingHint)
