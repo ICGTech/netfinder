@@ -49,9 +49,15 @@ internal static class Ui
     // mirrored place without mirroring the letters.
 
     /// <summary>Mirrors the painting between x = left and x = right when the window is right to left.</summary>
-    public static void Mirror(Graphics g, int left, int right) { if (Rtl) g.Transform = new Matrix(-1, 0, 0, 1, left + right, 0); }
+    public static void Mirror(Graphics g, int left, int right)
+    {
+        if (!Rtl) return;
+        using var m = new Matrix(-1, 0, 0, 1, left + right, 0);
+        g.MultiplyTransform(m); // in the control's own coordinates (a tool strip item's graphics are already moved to the item)
+    }
     public static void Mirror(Graphics g, Control c) => Mirror(g, 0, c.Width);
-    public static void Unmirror(Graphics g) { if (Rtl) g.ResetTransform(); }
+    /// <summary>Undoes <see cref="Mirror(Graphics, int, int)"/> (mirroring twice is no mirroring).</summary>
+    public static void Unmirror(Graphics g, int left, int right) => Mirror(g, left, right);
 
     /// <summary>A mouse point in the coordinates the control paints in (mirrored when right to left).</summary>
     public static Point Logical(Control c, Point p) => Rtl ? new Point(c.Width - 1 - p.X, p.Y) : p;
@@ -66,11 +72,16 @@ internal static class Ui
 
     /// <summary>True when the text has Arabic / Hebrew letters: only those are drawn with right-to-left reading order
     /// (an English model name in RTL order would get its closing bracket on the wrong side).</summary>
-    public static bool HasRtlLetters(string? s)
+    public static bool HasRtlLetters(string? s) => Core.Text.L.HasRtlLetters(s);
+
+    /// <summary>Arabic / Urdu: English names, models… in the cells of a table keep their left-to-right order ("(M404)" not ")M404(").</summary>
+    public static void LtrCells(DataGridView g)
     {
-        if (s == null) return false;
-        foreach (var ch in s) if (ch is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFEFC') return true;
-        return false;
+        if (!Rtl) return;
+        g.CellFormatting += (_, e) =>
+        {
+            if (e.Value is string s && Core.Text.L.Bidi(s) is var b && !ReferenceEquals(b, s)) { e.Value = b; e.FormattingApplied = true; }
+        };
     }
 
     public static void DrawText(Graphics g, string? text, Font font, Rectangle r, Color color, TextFormatFlags flags = TextFormatFlags.Default)
@@ -122,6 +133,18 @@ internal static class Ui
 
     /// <summary>Every window of the program: right to left for Arabic / Urdu.</summary>
     public static void Direction(Control c) { if (Rtl) c.RightToLeft = RightToLeft.Yes; }
+
+    /// <summary>Boxes for technical text (IP addresses, subnets, users, web addresses) stay left to right in an Arabic / Urdu window.</summary>
+    public static void Ltr(params Control[] cs) { if (Rtl) foreach (var c in cs) c.RightToLeft = RightToLeft.No; }
+
+    /// <summary>Controls placed by position (not docked) move to the mirrored place inside their parent, for Arabic / Urdu.</summary>
+    public static void MirrorPositions(Control parent)
+    {
+        if (!Rtl) return;
+        var w = parent.ClientSize.Width;
+        foreach (Control c in parent.Controls)
+            if (c.Dock == DockStyle.None) c.Left = w - c.Right;
+    }
 
     /// <summary>A control painted by us, double-buffered.</summary>
     public static void Painted(Control c) =>
@@ -340,19 +363,20 @@ internal sealed class BrandItem : ToolStripItem
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
+        Ui.Mirror(g, 0, Width);
         var size = S(34);
         if (_logo != null)
         {
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            g.DrawImage(_logo, new Rectangle(0, (Height - size) / 2, size, size));
+            Ui.DrawImage(g, _logo, new Rectangle(0, (Height - size) / 2, size, size));
         }
         if (Compact) return;
         var x = size + S(10);
         var name = TextRenderer.MeasureText(g, AppInfo.Name, Theme.Big, Size.Empty, TextFormatFlags.NoPadding);
         var sub = TextRenderer.MeasureText(g, AppInfo.Company, Theme.Small, Size.Empty, TextFormatFlags.NoPadding);
         var top = (Height - name.Height - sub.Height) / 2;
-        TextRenderer.DrawText(g, AppInfo.Name, Theme.Big, new Point(x, top), Theme.P.Text, TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(g, AppInfo.Company, Theme.Small, new Point(x, top + name.Height), Theme.P.Muted, TextFormatFlags.NoPadding);
+        Ui.DrawText(g, AppInfo.Name, Theme.Big, new Point(x, top), Theme.P.Text, TextFormatFlags.NoPadding);
+        Ui.DrawText(g, AppInfo.Company, Theme.Small, new Point(x, top + name.Height), Theme.P.Muted, TextFormatFlags.NoPadding);
     }
 }
 
@@ -377,7 +401,8 @@ internal sealed class InputBox : Control
     {
         base.OnLayout(e);
         var left = LogicalToDeviceUnits(SearchIcon ? 32 : 11);
-        Box.SetBounds(left, (Height - Box.Height) / 2, Math.Max(10, Width - left - LogicalToDeviceUnits(10)), Box.Height);
+        var w = Math.Max(10, Width - left - LogicalToDeviceUnits(10));
+        Box.SetBounds(Rtl ? Width - left - w : left, (Height - Box.Height) / 2, w, Box.Height);
     }
 
     protected override void OnClick(EventArgs e) { base.OnClick(e); Box.Focus(); }
@@ -393,6 +418,7 @@ internal sealed class InputBox : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), LogicalToDeviceUnits(7), P.InputBg, Box.Focused ? P.Accent : P.Border);
         if (SearchIcon)
@@ -482,6 +508,7 @@ internal sealed class NavList : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(P.Surface2);
         DoLayout();
         for (var n = 0; n < _layout.Count; n++)
@@ -489,7 +516,7 @@ internal sealed class NavList : Control
             var (i, r) = _layout[n];
             if (i.IsSection)
             {
-                TextRenderer.DrawText(g, i.Text, Theme.Section, new Rectangle(r.X + S(10), r.Y, r.Width - S(10), r.Height), P.Muted, Ui.Line);
+                Ui.DrawText(g, i.Text, Theme.Section, new Rectangle(r.X + S(10), r.Y, r.Width - S(10), r.Height), P.Muted, Ui.Line);
                 continue;
             }
             var sel = i.Key == SelectedKey;
@@ -500,11 +527,11 @@ internal sealed class NavList : Control
             var cw = TextRenderer.MeasureText(g, count, font, Size.Empty, TextFormatFlags.NoPadding).Width;
             var textH = Ui.LineHeight(font) + S(4);
             var textR = new Rectangle(r.X + S(12), r.Y + (i.Sub != null ? S(7) : 0), r.Width - S(24) - cw - S(6), i.Sub != null ? textH : r.Height);
-            TextRenderer.DrawText(g, i.Text, font, textR, sel ? P.AccentSoftText : P.Text, Ui.Line);
-            TextRenderer.DrawText(g, count, font, new Rectangle(r.Right - S(12) - cw, textR.Y, cw + 2, textR.Height),
+            Ui.DrawText(g, i.Text, font, textR, sel ? P.AccentSoftText : P.Text, Ui.Line);
+            Ui.DrawText(g, count, font, new Rectangle(r.Right - S(12) - cw, textR.Y, cw + 2, textR.Height),
                 sel ? P.AccentSoftText : i.Count == 0 ? Theme.Mix(P.Muted, P.Surface2, 0.35) : P.Muted, Ui.Line);
             if (i.Sub != null)
-                TextRenderer.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), Ui.LineHeight(Theme.Small) + S(2)), i.SubBad ? P.Bad : sel ? P.AccentSoftText : P.Muted, Ui.Line);
+                Ui.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), Ui.LineHeight(Theme.Small) + S(2)), i.SubBad ? P.Bad : sel ? P.AccentSoftText : P.Muted, Ui.Line);
         }
         if (_contentHeight > Height && Height > S(20))
         {
@@ -525,7 +552,7 @@ internal sealed class NavList : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var h = HitTest(e.Location);
+        var h = HitTest(Ui.Logical(this, e.Location));
         Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
         if (h != _hover) { _hover = h; Invalidate(); }
     }
@@ -535,7 +562,7 @@ internal sealed class NavList : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        var h = HitTest(e.Location);
+        var h = HitTest(Ui.Logical(this, e.Location));
         if (h >= 0) Select(_layout[h].Item.Key);
     }
 }
@@ -564,13 +591,14 @@ internal sealed class InfoCard : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface2);
         var fill = Tone switch { Kind.Warn => P.WarnSoft, Kind.Accent => P.AccentSoft, Kind.Bad => P.BadSoft, _ => P.Dark ? P.Surface : Theme.Mix(P.Surface2, P.Border, 0.45) };
         Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), S(8), fill);
         var w = Width - S(28);
         var th = Ui.WrapHeight(_title, Theme.Bold, w);
-        TextRenderer.DrawText(g, _title, Theme.Bold, new Rectangle(S(14), S(12), w, th), Tone switch { Kind.Warn => P.Warn, Kind.Accent => P.AccentSoftText, Kind.Bad => P.Bad, _ => P.Good }, Ui.Wrap);
-        TextRenderer.DrawText(g, _body, Theme.Small, new Rectangle(S(14), S(12) + th + S(3), w, Height), P.Muted, Ui.Wrap);
+        Ui.DrawText(g, _title, Theme.Bold, new Rectangle(S(14), S(12), w, th), Tone switch { Kind.Warn => P.Warn, Kind.Accent => P.AccentSoftText, Kind.Bad => P.Bad, _ => P.Good }, Ui.Wrap);
+        Ui.DrawText(g, _body, Theme.Small, new Rectangle(S(14), S(12) + th + S(3), w, Height), P.Muted, Ui.Wrap);
         if (!Enabled) using (var b = new SolidBrush(Color.FromArgb(110, P.Surface2))) g.FillRectangle(b, ClientRectangle);
     }
 
@@ -612,6 +640,7 @@ internal sealed class SegmentedTabs : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), S(9), P.Dark ? P.Surface2 : Theme.Mix(P.Surface2, P.Border, 0.5));
         for (var i = 0; i < _tabs.Count; i++)
@@ -620,15 +649,15 @@ internal sealed class SegmentedTabs : Control
             var sel = i == _selected;
             if (sel) Ui.FillRound(g, r, S(7), P.Dark ? P.AccentSoft : P.Surface, P.Dark ? null : P.Border);
             else if (i == _hover) Ui.FillRound(g, r, S(7), P.Hover);
-            TextRenderer.DrawText(g, _tabs[i], sel ? Theme.HeaderBold : Theme.Header, r, sel ? (P.Dark ? P.AccentSoftText : P.Text) : P.Muted,
+            Ui.DrawText(g, _tabs[i], sel ? Theme.HeaderBold : Theme.Header, r, sel ? (P.Dark ? P.AccentSoftText : P.Text) : P.Muted,
                 Ui.Line | TextFormatFlags.HorizontalCenter);
         }
     }
 
     private int Hit(Point p) { for (var i = 0; i < _tabs.Count; i++) if (Seg(i).Contains(p)) return i; return -1; }
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); var h = Hit(e.Location); if (h != _hover) { _hover = h; Invalidate(); } }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); var h = Hit(Ui.Logical(this, e.Location)); if (h != _hover) { _hover = h; Invalidate(); } }
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hover = -1; Invalidate(); }
-    protected override void OnMouseClick(MouseEventArgs e) { base.OnMouseClick(e); var h = Hit(e.Location); if (h >= 0) SelectedIndex = h; }
+    protected override void OnMouseClick(MouseEventArgs e) { base.OnMouseClick(e); var h = Hit(Ui.Logical(this, e.Location)); if (h >= 0) SelectedIndex = h; }
 }
 
 /// <summary>Top of the details pane: the type tile, the IP big, and the name / MAC under it.</summary>
@@ -654,6 +683,7 @@ internal sealed class DetailsHeader : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         var x = 0;
         if (_type != null)
@@ -664,8 +694,8 @@ internal sealed class DetailsHeader : Control
         }
         var titleFont = _type != null ? Theme.MonoTitle : Theme.Big;
         var th = TextRenderer.MeasureText(g, _title, titleFont, Size.Empty, TextFormatFlags.NoPadding).Height;
-        TextRenderer.DrawText(g, _title, titleFont, new Rectangle(x, S(2), Width - x, th), P.Text, Ui.Line);
-        TextRenderer.DrawText(g, _sub, Theme.Base, new Rectangle(x, S(4) + th, Width - x, Height - th - S(4)), P.Muted, Ui.Wrap | TextFormatFlags.EndEllipsis);
+        Ui.DrawText(g, _title, titleFont, new Rectangle(x, S(2), Width - x, th), P.Text, Ui.Line);
+        Ui.DrawText(g, _sub, Theme.Base, new Rectangle(x, S(4) + th, Width - x, Height - th - S(4)), P.Muted, Ui.Wrap | TextFormatFlags.EndEllipsis);
     }
 }
 
@@ -701,6 +731,7 @@ internal sealed class RoundButton : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         var hot = _hot && Enabled;
         Color fill, border, text;
@@ -714,7 +745,7 @@ internal sealed class RoundButton : Control
             fill = hot ? P.Hover : P.Surface; border = P.Border; text = Enabled ? P.Text : P.Muted;
         }
         Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), LogicalToDeviceUnits(7), fill, border);
-        TextRenderer.DrawText(g, Text, Font, ClientRectangle, text, Ui.Line | TextFormatFlags.HorizontalCenter);
+        Ui.DrawText(g, Text, Font, ClientRectangle, text, Ui.Line | TextFormatFlags.HorizontalCenter);
     }
 }
 
@@ -737,6 +768,7 @@ internal sealed class InfoTable : Control
     {
         Ui.Painted(this);
         var menu = new ContextMenuStrip { Renderer = new ChromeRenderer() };
+        Ui.Direction(menu);
         menu.Items.Add(T("Copy"), null, (_, _) => { var t = ToText(); if (t.Length > 0) Clipboard.SetText(t); });
         ContextMenuStrip = menu;
     }
@@ -766,6 +798,7 @@ internal sealed class InfoTable : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         var outer = new Rectangle(0, 0, Width - 1, Height - 1);
         Ui.FillRound(g, outer, S(9), P.Surface, P.Border);
@@ -780,7 +813,7 @@ internal sealed class InfoTable : Control
                 g.FillPath(b, path);
                 g.SmoothingMode = SmoothingMode.None;
             }
-            TextRenderer.DrawText(g, Title.ToUpperInvariant(), Theme.Section, new Rectangle(S(16), 0, Width - S(32), S(37)), P.Muted, Ui.Line);
+            Ui.DrawText(g, Title.ToUpperInvariant(), Theme.Section, new Rectangle(S(16), 0, Width - S(32), S(37)), P.Muted, Ui.Line);
             g.DrawLine(line, 1, S(37), Width - 2, S(37));
         }
         var keyW = S(KeyWidth);
@@ -790,15 +823,15 @@ internal sealed class InfoTable : Control
         {
             var (row, r, vh) = _layout[n];
             if (n > 0) g.DrawLine(line, 1, r.Y, Width - 2, r.Y);
-            TextRenderer.DrawText(g, row.Key, Theme.Base, new Rectangle(S(16), r.Y + S(10), keyW - S(8), vh), P.Muted, Ui.Wrap);
-            TextRenderer.DrawText(g, row.Value, row.Warn ? Theme.Bold : Theme.Base, new Rectangle(valueX, r.Y + S(10), valueW, vh), row.Warn ? P.Bad : P.Text, Ui.Wrap);
+            Ui.DrawText(g, row.Key, Theme.Base, new Rectangle(S(16), r.Y + S(10), keyW - S(8), vh), P.Muted, Ui.Wrap);
+            Ui.DrawText(g, row.Value, row.Warn ? Theme.Bold : Theme.Base, new Rectangle(valueX, r.Y + S(10), valueW, vh), row.Warn ? P.Bad : P.Text, Ui.Wrap);
             var y = r.Y + S(10) + vh;
             if (row.Chip != null)
             {
                 var tw = TextRenderer.MeasureText(g, row.Chip, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
                 var chip = new Rectangle(valueX, y + S(5), tw + S(18), S(20));
                 Ui.FillRound(g, chip, S(10), row.ChipGood ? P.GoodSoft : P.Hover, row.ChipGood ? null : P.Border);
-                TextRenderer.DrawText(g, row.Chip, Theme.Bold, chip, row.ChipGood ? P.Good : P.Muted, Ui.Line | TextFormatFlags.HorizontalCenter);
+                Ui.DrawText(g, row.Chip, Theme.Bold, chip, row.ChipGood ? P.Good : P.Muted, Ui.Line | TextFormatFlags.HorizontalCenter);
                 y += S(26);
             }
             if (row.Bar is { } used)
@@ -860,6 +893,7 @@ internal sealed class ChipList : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         foreach (var (r, i) in _layout)
         {
@@ -869,16 +903,16 @@ internal sealed class ChipList : Control
             else Ui.FillRound(g, r, r.Height / 2, P.Dark ? P.Surface2 : Theme.Mix(P.Surface2, P.Border, 0.45), P.Dark ? P.Border : null);
             var ink = bad ? P.Bad : P.Text;
             var bw = TextRenderer.MeasureText(g, c.Bold, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
-            TextRenderer.DrawText(g, c.Bold, Theme.Bold, new Rectangle(r.X + S(12), r.Y, bw + 2, r.Height), ink, Ui.Line);
+            Ui.DrawText(g, c.Bold, Theme.Bold, new Rectangle(r.X + S(12), r.Y, bw + 2, r.Height), ink, Ui.Line);
             if (c.Text.Length > 0)
-                TextRenderer.DrawText(g, c.Text, Theme.Base, new Rectangle(r.X + S(12) + bw + S(5), r.Y, r.Right - (r.X + S(12) + bw + S(5)) - S(10), r.Height), ink, Ui.Line);
+                Ui.DrawText(g, c.Text, Theme.Base, new Rectangle(r.X + S(12) + bw + S(5), r.Y, r.Right - (r.X + S(12) + bw + S(5)) - S(10), r.Height), ink, Ui.Line);
         }
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var hit = _layout.FindIndex(l => l.R.Contains(e.Location));
+        var hit = _layout.FindIndex(l => l.R.Contains(Ui.Logical(this, e.Location)));
         if (hit == _tipFor) return;
         _tipFor = hit;
         _tip.SetToolTip(this, hit >= 0 ? Chips[_layout[hit].Index].Tip ?? "" : "");
@@ -914,10 +948,11 @@ internal sealed class DropPicker : Control
     {
         var P = Theme.P;
         var g = e.Graphics;
+        Ui.Mirror(g, this);
         g.Clear(Parent?.BackColor ?? P.Surface);
         Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), LogicalToDeviceUnits(7), _hot ? P.Hover : P.InputBg, P.Border);
         var s = LogicalToDeviceUnits(1);
-        TextRenderer.DrawText(g, SelectedItem?.ToString() ?? "", Font, new Rectangle(10 * s, 0, Width - 34 * s, Height), P.Text, Ui.Line);
+        Ui.DrawText(g, SelectedItem?.ToString() ?? "", Font, new Rectangle(10 * s, 0, Width - 34 * s, Height), P.Text, Ui.Line);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         using var pen = new Pen(P.Muted, 1.6f * s);
         var cx = Width - 16 * s; var cy = Height / 2;
@@ -928,6 +963,7 @@ internal sealed class DropPicker : Control
     {
         base.OnMouseClick(e);
         var menu = new ContextMenuStrip { Renderer = new ChromeRenderer(), ShowCheckMargin = true, ShowImageMargin = false, MaximumSize = new Size(LogicalToDeviceUnits(520), 0) };
+        Ui.Direction(menu);
         for (var i = 0; i < Items.Count; i++)
         {
             var n = i;

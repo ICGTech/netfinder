@@ -128,8 +128,37 @@ public static class L
         string t;
         if (_map.TryGetValue(key, out var x) && x.Length > 0) t = x;
         else { t = key; Miss(key); }
+        // in Arabic / Urdu an English value (a name, a model, "SW-1 (10.0.0.2)") keeps its own left-to-right order inside the sentence
+        if (Rtl) for (var i = 0; i < args.Length; i++) args[i] = new LtrValue(args[i]);
         try { return string.Format(CultureInfo.InvariantCulture, t, args); }
         catch (FormatException) { return string.Format(CultureInfo.InvariantCulture, key, args); }
+    }
+
+    /// <summary>True when the text has Arabic, Urdu or Hebrew letters.</summary>
+    public static bool HasRtlLetters(string? s)
+    {
+        if (s == null) return false;
+        foreach (var ch in s) if (ch is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFEFC') return true;
+        return false;
+    }
+
+    /// <summary>
+    /// In an Arabic / Urdu window: English text with letters gets an invisible left-to-right mark at both ends, so "HP LaserJet (M404)"
+    /// does not show as "(HP LaserJet (M404". Other text, and every text in left-to-right languages, is returned as it is.
+    /// </summary>
+    public static string Bidi(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return s ?? "";
+        if (!Rtl || s[0] == '\u200E' || HasRtlLetters(s) || !s.Any(char.IsLetter)) return s;
+        return "\u200E" + s + "\u200E";
+    }
+
+    private sealed class LtrValue : IFormattable
+    {
+        private readonly object? _v;
+        public LtrValue(object? v) => _v = v;
+        public string ToString(string? format, IFormatProvider? p) => Bidi(_v is IFormattable f ? f.ToString(format, p) : _v?.ToString());
+        public override string ToString() => ToString(null, CultureInfo.InvariantCulture);
     }
 
     /// <summary>Builds "{0} of {1} ports up" + the values from an interpolated string.</summary>

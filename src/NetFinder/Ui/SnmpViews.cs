@@ -66,7 +66,7 @@ internal static class Ink
             using (var b = new SolidBrush(For(s.Color)))
                 g.FillEllipse(b, x, cell.Y + (cell.Height - dot) / 2, dot, dot);
             x += dot + Sx(4);
-            TextRenderer.DrawText(g, text, font, new Rectangle(x, cell.Y, tw + Sx(2), cell.Height), s.Low ? P.Bad : P.Text, Ui.Line);
+            Ui.DrawText(g, text, font, new Rectangle(x, cell.Y, tw + Sx(2), cell.Height), s.Low ? P.Bad : P.Text, Ui.Line);
             x += tw + Sx(10);
         }
         g.SmoothingMode = SmoothingMode.None;
@@ -136,7 +136,7 @@ internal sealed class PortGrid : Control
                 using var pen = new Pen(P.Muted) { DashStyle = DashStyle.Dash };
                 g.DrawLine(pen, r.X + S(5), r.Bottom - S(6), r.Right - S(6), r.Y + S(5));
             }
-            TextRenderer.DrawText(g, Label(p.Name), Theme.Small, r, text, Ui.Line | TextFormatFlags.HorizontalCenter);
+            Ui.DrawText(g, Label(p.Name), Theme.Small, r, text, Ui.Line | TextFormatFlags.HorizontalCenter);
         }
     }
 
@@ -145,7 +145,7 @@ internal sealed class PortGrid : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        var i = HitTest(e.Location);
+        var i = HitTest(Ui.Logical(this, e.Location));
         if (i == _hover) return;
         _hover = i;
         Invalidate();
@@ -158,7 +158,7 @@ internal sealed class PortGrid : Control
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        var i = HitTest(e.Location);
+        var i = HitTest(Ui.Logical(this, e.Location));
         if (i >= 0) PortClicked?.Invoke(Ports[i].Port);
     }
 
@@ -236,6 +236,8 @@ internal sealed class SwitchPortsForm : Form
         _title = name.Length > 0 && name != model ? $"{name} ({ip})" : ip;
         Text = T($"Ports of switch {_title}");
         Font = Theme.Base;
+        Ui.Direction(this);
+        Ui.LtrCells(_grid);
         Icon = Theme.AppIcon();
         StartPosition = FormStartPosition.CenterParent;
         ShowInTaskbar = false;
@@ -254,7 +256,7 @@ internal sealed class SwitchPortsForm : Form
             _rows.Add((p, shown, string.Join("\n", who), p.Macs.Count));
         }
 
-        _head.Text = $"{_title}{(model.Length > 0 ? "  ·  " + model : "")}";
+        _head.Text = Bidi($"{_title}{(model.Length > 0 ? "  ·  " + model : "")}");
         _head.ForeColor = P.Text;
         _note.Text = T($"{st.Up} of {st.Ports.Count} ports up  ·  {st.MacCount} devices learned  ·  read {st.ReadAt:HH:mm}.  " +
                      $"A port with several devices leads to another switch or a Wi-Fi access point. Double-click a row to pick its device in the list.");

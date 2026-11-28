@@ -95,7 +95,7 @@ public sealed class MainForm : Form
     private readonly Panel _logPanel = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly FlowLayoutPanel _logBar = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
     private readonly LinkLabel _logCopy = new() { Text = T("Copy"), AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
-    private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None };
+    private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None, RightToLeft = RightToLeft.No }; // the log stays English
     // the Log tab shows the lines about the selected device (all of them when nothing is selected or the box is unticked)
     private readonly CheckBox _logOnlySel = new() { Text = T("Only lines about the selected device"), Checked = true, AutoSize = true, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 5, 12, 0) };
     private readonly Label _logInfo = new() { AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
@@ -148,6 +148,8 @@ public sealed class MainForm : Form
         Theme.SetDark(_settings.DarkMode && _shotDir == null);
         Text = $"{AppInfo.Name} {AppInfo.Version}  –  {AppInfo.Company}";
         Font = Theme.Base;
+        Ui.Direction(this);
+        Ui.LtrCells(_grid);
         Icon = Theme.AppIcon();
         var work = Screen.PrimaryScreen?.WorkingArea.Size ?? new Size(1600, 900);
         ClientSize = new Size(Math.Min(S(1400), work.Width * 92 / 100), Math.Min(S(860), work.Height * 92 / 100));
@@ -189,6 +191,7 @@ public sealed class MainForm : Form
         Controls.Add(_updateBanner);
         Controls.Add(_tools);
         Controls.Add(_status);
+        Ui.MirrorDock(this);
 
         _engine.Store.Changed += d => _dirty[d.Key] = d;
         _engine.Store.Removed += d => _removed.Enqueue(d);
@@ -553,23 +556,28 @@ public sealed class MainForm : Form
         if (name == "Type")
         {
             e.PaintBackground(e.CellBounds, selected);
+            Ui.Mirror(g, e.CellBounds.Left, e.CellBounds.Right);
             var type = e.FormattedValue?.ToString() ?? "";
             var size = Math.Clamp(e.CellBounds.Height - S(12), 14, S(28));
             var r = new Rectangle(e.CellBounds.X + S(10), e.CellBounds.Y + (e.CellBounds.Height - size) / 2, size, size);
             Theme.DrawTypeTile(g, r, type, back);
             var textRect = new Rectangle(r.Right + S(10), e.CellBounds.Y, Math.Max(0, e.CellBounds.Right - r.Right - S(14)), e.CellBounds.Height);
-            TextRenderer.DrawText(g, T(type), Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line | (Rtl ? TextFormatFlags.Right | TextFormatFlags.RightToLeft : 0));
+            Ui.DrawText(g, T(type), Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line);
+            Ui.Unmirror(g, e.CellBounds.Left, e.CellBounds.Right);
             e.Handled = true;
         }
         else if (name == "Ink" && _grid.Rows[e.RowIndex].Tag is Device { Printer: { Supplies.Count: > 0 } pst })
         {
             e.PaintBackground(e.CellBounds, selected);
+            Ui.Mirror(g, e.CellBounds.Left, e.CellBounds.Right);
             Ink.PaintCell(g, e.CellBounds, pst, S);
+            Ui.Unmirror(g, e.CellBounds.Left, e.CellBounds.Right);
             e.Handled = true;
         }
         else if (name == "Watch" && e.FormattedValue?.ToString() is { Length: > 0 } watch)
         {
             e.PaintBackground(e.CellBounds, selected);
+            Ui.Mirror(g, e.CellBounds.Left, e.CellBounds.Right);
             var health = _grid.Rows[e.RowIndex].Tag is Device wd ? WatchHealth(wd) : Health.Unknown;
             var down = health == Health.Down;
             var up = health == Health.Up;
@@ -577,7 +585,8 @@ public sealed class MainForm : Form
             var tw = TextRenderer.MeasureText(g, text, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
             var chip = new Rectangle(e.CellBounds.X + S(6), e.CellBounds.Y + (e.CellBounds.Height - S(24)) / 2, Math.Min(tw + S(20), e.CellBounds.Width - S(10)), S(24));
             Ui.FillRound(g, chip, S(12), down ? P.BadSoft : up ? P.GoodSoft : P.Hover);
-            TextRenderer.DrawText(g, text, Theme.Bold, chip, down ? P.Bad : up ? P.Good : P.Muted, Ui.Line | TextFormatFlags.HorizontalCenter);
+            Ui.DrawText(g, text, Theme.Bold, chip, down ? P.Bad : up ? P.Good : P.Muted, Ui.Line | TextFormatFlags.HorizontalCenter);
+            Ui.Unmirror(g, e.CellBounds.Left, e.CellBounds.Right);
             e.Handled = true;
         }
         else if (name == "Model" && string.IsNullOrEmpty(e.FormattedValue?.ToString()) && _grid.Rows[e.RowIndex].Tag is Device d)
@@ -586,11 +595,13 @@ public sealed class MainForm : Form
             lock (d) status = d.Info.GetValueOrDefault("Windows status");
             if (status == null) return;
             e.PaintBackground(e.CellBounds, selected);
+            Ui.Mirror(g, e.CellBounds.Left, e.CellBounds.Right);
             var text = "⚠  " + T(status);
             var tw = TextRenderer.MeasureText(g, text, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
             var chip = new Rectangle(e.CellBounds.X + S(6), e.CellBounds.Y + (e.CellBounds.Height - S(24)) / 2, Math.Min(tw + S(20), e.CellBounds.Width - S(10)), S(24));
             Ui.FillRound(g, chip, S(12), P.WarnSoft);
-            TextRenderer.DrawText(g, text, Theme.Bold, chip, P.Warn, Ui.Line | TextFormatFlags.HorizontalCenter);
+            Ui.DrawText(g, text, Theme.Bold, chip, P.Warn, Ui.Line | TextFormatFlags.HorizontalCenter);
+            Ui.Unmirror(g, e.CellBounds.Left, e.CellBounds.Right);
             e.Handled = true;
         }
     }
@@ -598,6 +609,7 @@ public sealed class MainForm : Form
     private ContextMenuStrip BuildContextMenu()
     {
         var m = new ContextMenuStrip { Renderer = _renderer };
+        Ui.Direction(m);
         var icons = Theme.P.Surface;
         var open = new ToolStripMenuItem(T("Open")) { Font = Theme.Bold, ToolTipText = T("Web page, Remote Desktop, SSH… whatever the device has open") };
         open.Click += (_, _) => OpenPrimary(SelectedDevice());
@@ -779,6 +791,7 @@ public sealed class MainForm : Form
             var pc = _rows.Values.FirstOrDefault(r => r.Tag is Device d && d.Ip?.ToString() == "10.0.0.45") ?? _rows.Values.FirstOrDefault();
             if (pc != null) { _grid.ClearSelection(); pc.Selected = true; _grid.CurrentCell = pc.Cells["Ip"]; }
             await Task.Delay(1500);
+            if (Core.Text.L.Current.Code != "en") { await LanguageShotsAsync(dir, border); Close(); return; }
             Shot(Path.Combine(dir, "light.png"));
             var header = new List<string> { HeaderCheck() };
             _tabs.SelectedIndex = 1;
@@ -858,6 +871,66 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
         Close();
+    }
+
+    /// <summary>
+    /// NETFINDER_LANG with NETFINDER_SCREENSHOT: the main views and dialogs in that language, the right-to-left layout for Arabic / Urdu,
+    /// and missing.txt with every text that had no translation.
+    /// </summary>
+    private async Task LanguageShotsAsync(string dir, Size border)
+    {
+        var lang = Core.Text.L.Current;
+        var notes = new List<string> { $"language {lang.Code} ({lang.EnglishName}), right to left {Core.Text.L.Rtl}, window RightToLeft {RightToLeft}" };
+        Shot(Path.Combine(dir, "light.png"));
+        notes.Add(HeaderCheck());
+        Rectangle OnScreen(Control c) => c.RectangleToScreen(c.ClientRectangle);
+        notes.Add($"list on screen {OnScreen(_split.Panel1)}, details {OnScreen(_split.Panel2)}, side menu {OnScreen(_nav)}; " +
+                  $"the list is {(OnScreen(_split.Panel1).Left < OnScreen(_split.Panel2).Left ? "LEFT" : "RIGHT")} of the details, the side menu is {(OnScreen(_nav).Left < OnScreen(_split.Panel1).Left ? "LEFT" : "RIGHT")} of the list");
+        _tabs.SelectedIndex = 1;
+        await Task.Delay(700);
+        Shot(Path.Combine(dir, "light-all-details.png"));
+        _tabs.SelectedIndex = 0;
+        await ShotModelsDialogAsync(Path.Combine(dir, "light-get-models-dialog.png"));
+        SelectIp("10.0.0.2");
+        await Task.Delay(900);
+        _devicePanel.AutoScrollPosition = new Point(0, _devicePanel.DisplayRectangle.Height);
+        await Task.Delay(500);
+        Shot(Path.Combine(dir, "light-risky-ports.png"));
+        _nav.Select("watch");
+        SelectIp("10.0.0.201");
+        await Task.Delay(1200);
+        Shot(Path.Combine(dir, "light-watched.png"));
+        await ShotWatchDialogAsync(Path.Combine(dir, "light-watch-dialog.png"));
+        notes.Add(await SnmpShotsAsync(dir));
+        using (var f = new SettingsForm(_settings, _engine.Plugins))
+        {
+            f.StartPosition = FormStartPosition.Manual;
+            f.Location = new Point(Left + 200, Top + 40);
+            f.Show(this);
+            await Task.Delay(900);
+            Shot(Path.Combine(dir, "light-settings.png"), f);
+            f.Close();
+            await Task.Delay(300);
+        }
+        _nav.Select("all");
+        SelectIp("10.0.0.45");
+        _chkDark.Checked = true;
+        await Task.Delay(1500);
+        Shot(Path.Combine(dir, "dark.png"));
+        _tabs.SelectedIndex = 2;
+        await Task.Delay(800);
+        Shot(Path.Combine(dir, "dark-log.png"));
+        _tabs.SelectedIndex = 0;
+        _chkRepeat.Checked = true;
+        Native.ForceSize(this, 1100 + border.Width, 720 + border.Height);
+        await Task.Delay(1200);
+        Shot(Path.Combine(dir, "dark-narrow.png"));
+        notes.Add(HeaderCheck());
+        _chkRepeat.Checked = false;
+        notes.Add($"ui errors: {(File.Exists(Path.Combine(dir, "ui-errors.txt")) ? "YES, see ui-errors.txt" : "none")}");
+        File.WriteAllText(Path.Combine(dir, "info.txt"), string.Join("\r\n", notes));
+        File.WriteAllLines(Path.Combine(dir, "missing.txt"),
+            Core.Text.L.Missing.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value}\t{kv.Key.Replace("\r", "\\r").Replace("\n", "\\n")}"));
     }
 
     /// <summary>
@@ -1271,6 +1344,7 @@ public sealed class MainForm : Form
         var open = new TaskDialogButton(T("Open npcap.com in browser"));
         var page = new TaskDialogPage
         {
+            RightToLeftLayout = Rtl,
             Caption = AppInfo.Name,
             Icon = TaskDialogIcon.Warning,
             Heading = T("This PC can't reach the Npcap website"),
@@ -2749,6 +2823,7 @@ public sealed class MainForm : Form
             _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowFromTray(null); };
             _tray.BalloonTipClicked += (_, _) => ShowFromTray(_trayIp);
             var menu = new ContextMenuStrip { Renderer = _renderer };
+            Ui.Direction(menu);
             menu.Items.Add(T("Open NetFinder"), null, (_, _) => ShowFromTray(null));
             menu.Items.Add(T("Watch devices…"), null, (_, _) => { ShowFromTray(null); PickWatched(); });
             _tray.ContextMenuStrip = menu;

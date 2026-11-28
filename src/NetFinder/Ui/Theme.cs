@@ -77,7 +77,7 @@ internal static class Theme
         g.SmoothingMode = smooth;
         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
         var hasGlyph = TypeGlyphs.TryGetValue(type, out var glyph);
-        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * 0.86 * GlyphScale(type)), hasGlyph), r, TypeInk(type), flags);
+        Ui.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * 0.86 * GlyphScale(type)), hasGlyph), r, TypeInk(type), flags);
     }
 
     private static readonly Dictionary<string, Color> TypeColors = new()
@@ -168,7 +168,7 @@ internal static class Theme
         g.SmoothingMode = smooth;
         var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
         var hasGlyph = TypeGlyphs.TryGetValue(type, out var glyph);
-        TextRenderer.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * GlyphScale(type)), hasGlyph), r, Color.White, flags);
+        Ui.DrawText(g, hasGlyph ? glyph : "?", GlyphFontFor((int)(r.Height * GlyphScale(type)), hasGlyph), r, Color.White, flags);
     }
 
     /// <summary>The type icon as a picture (device tab header, menus), on an opaque background.</summary>

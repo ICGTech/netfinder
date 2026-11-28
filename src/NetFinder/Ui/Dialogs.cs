@@ -28,6 +28,7 @@ internal static class Dialogs
                $"(e.g. DOMAIN\\admin or PCNAME\\Administrator)."));
         var tu = new TextBox { Text = current?.User ?? "", PlaceholderText = T("DOMAIN\\user  or  user@domain.local") };
         var tp = new TextBox { UseSystemPasswordChar = true, Text = current?.Password ?? "" };
+        Ui.Ltr(tu, tp);
         d.Fields(12, 0, (T("User:"), tu), (T("Password:"), tp));
         d.Text(T("Leave the user empty to use your own Windows login. Kept only while NetFinder is open; never saved to disk."), top: 4, muted: true, small: true);
         d.Buttons(T("Read model"));
@@ -59,6 +60,7 @@ internal static class Dialogs
         var useWin = d.Check(T("Use a Windows login"), current != null || windowsPcs > 0, top: 8);
         var tu = new TextBox { Text = current?.User ?? "", PlaceholderText = T("DOMAIN\\admin  or  admin@domain.local") };
         var tp = new TextBox { UseSystemPasswordChar = true, Text = current?.Password ?? "" };
+        Ui.Ltr(tu, tp);
         d.Fields(4, 18, (T("User:"), tu), (T("Password:"), tp));
         d.Text(T("Empty user = your own Windows login. Kept only while NetFinder is open; never saved to disk."), top: 2, left: 18, muted: true, small: true);
         var reg = d.Check(T("If the firewall blocks WMI, read it over file sharing (port 445)"), true, top: 10, left: 18);
@@ -105,7 +107,7 @@ internal static class Dialogs
         foreach (var (title, part) in new[] { (T("Type"), 0.26), (T("IP address"), 0.18), (T("Name"), 0.25), (T("Model"), 0.31) })
             list.Columns.Add(title, (int)((d.Width - SystemInformation.VerticalScrollBarWidth - S(6)) * part));
         foreach (var p in devices)
-            list.Items.Add(new ListViewItem(new[] { T(p.Type), p.Ip, p.Name, p.Model }) { Checked = p.On, Tag = p });
+            list.Items.Add(new ListViewItem(new[] { T(p.Type), p.Ip, Bidi(p.Name), Bidi(p.Model) }) { Checked = p.On, Tag = p });
 
         // quick picks: tick every device of a kind
         var quick = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, MaximumSize = new Size(d.Width, 0), Padding = new Padding(0) };
@@ -165,6 +167,8 @@ internal static class Dialogs
         var upd = new Button { Text = T("Check for updates"), DialogResult = DialogResult.Yes, Left = 20, Top = 168, Width = 150 };
         var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Left = 325, Top = 168, Width = 75 };
         f.Controls.AddRange(new Control[] { pic, name, ver, tag, company, upd, ok });
+        Ui.Direction(f);
+        Ui.MirrorPositions(f);
         f.AcceptButton = ok;
         return f.ShowDialog(owner) == DialogResult.Yes;
     }
@@ -195,6 +199,8 @@ internal sealed class SettingsForm : Form
         _s = s;
         Text = AppInfo.Name + T(" – Settings");
         Font = Theme.Base;
+        Ui.Direction(this);
+        Ui.Ltr(_subnets, _ports, _updateSource, _snmp);
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(660, 680);
         MinimumSize = new Size(560, 480);
@@ -313,6 +319,7 @@ internal sealed class AutoDialog : IDisposable
             Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, AutoScaleMode = AutoScaleMode.None,
             MinimizeBox = false, MaximizeBox = false, Font = Theme.Base, ShowInTaskbar = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
+        Ui.Direction(Form);
         // a line of the font is about 16 px at 100 %: the wrap width follows the real font size, whatever scales it
         var line = TextRenderer.MeasureText("Wg", Theme.Base).Height;
         Width = Math.Max(S(width), line * width / 16);

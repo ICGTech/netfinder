@@ -22,11 +22,14 @@ jobs:
         shell: pwsh
         run: |
           $env:NETFINDER_DEMO = "1"
-          # normal text, then every font 1.5x bigger (checks that no text gets cut)
-          foreach ($run in @(@{ dir = "shots"; scale = "" }, @{ dir = "shots\big-text"; scale = "1.5" })) {
+          # normal text, then every font 1.5x bigger (checks that no text gets cut), then each language of the window
+          $runs = @(@{ dir = "shots"; scale = ""; lang = "" }, @{ dir = "shots\big-text"; scale = "1.5"; lang = "" })
+          foreach ($l in @("ar", "ur", "fr", "es", "pt", "hi", "zh")) { $runs += @{ dir = "shots\lang-$l"; scale = ""; lang = $l } }
+          foreach ($run in $runs) {
             New-Item -ItemType Directory -Force $run.dir | Out-Null
             $env:NETFINDER_SCREENSHOT = Join-Path $PWD $run.dir
             $env:NETFINDER_TEXT_SCALE = $run.scale
+            $env:NETFINDER_LANG = $run.lang
             $p = Start-Process dist\NetFinder.exe -PassThru
             if (-not $p.WaitForExit(200000)) { $p.Kill(); Write-Host "timed out" }
             Get-ChildItem $run.dir

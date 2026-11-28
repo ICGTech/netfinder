@@ -510,6 +510,8 @@ if (args.Length >= 1 && args[0] == "selftest")
         var n = 5;
         Check("arabic text with a value", NetFinder.Core.Text.L.T($"Watch {n} devices"), "مراقبة 5 أجهزة");
         Check("arabic text, missing translation stays English", NetFinder.Core.Text.L.T("No such text"), "No such text");
+        var swName = "SW-1 (10.0.0.2)";
+        Check("arabic text, an English value keeps its order", NetFinder.Core.Text.L.T($"Ports of switch {swName}").Contains("\u200E" + swName + "\u200E").ToString(), "True");
         Check("arabic is right to left", NetFinder.Core.Text.L.Rtl, true);
         using (NetFinder.Core.Text.L.Scope("fr")) Check("french for one sentence", NetFinder.Core.Text.L.T("Save"), "Enregistrer");
         Check("back to arabic", NetFinder.Core.Text.L.T("Save"), "حفظ");

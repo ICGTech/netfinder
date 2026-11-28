@@ -41,8 +41,11 @@ internal sealed class NvrForm : Form
         SortedSet<int> ports;
         lock (nvr) { ip = nvr.Ip?.ToString() ?? ""; title = nvr.DisplayName; ports = new SortedSet<int>(nvr.OpenPorts); }
 
-        Text = T($"Cameras on NVR {ip}") + (title.Length > 0 ? $"  ({title})" : "");
+        Text = T($"Cameras on NVR {ip}") + (title.Length > 0 ? "  " + Bidi($"({title})") : "");
         Font = Theme.Base;
+        Ui.Direction(this);
+        Ui.Ltr(_address, _user, _pass);
+        Ui.LtrCells(_grid);
         Icon = Theme.AppIcon();
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(1080, 620);
