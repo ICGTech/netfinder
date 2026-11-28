@@ -1361,6 +1361,8 @@ public sealed class MainForm : Form
         }
         if (sortCol != null && sortDir != SortOrder.None)
             _grid.Sort(sortCol, sortDir == SortOrder.Ascending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending);
+        // the grid marks the first row it gets as selected by itself; with no device picked, show none
+        if (_selected == null && _grid.SelectedRows.Count > 0) _grid.ClearSelection();
         UpdateCounters();
         RefreshSelected();
     }
