@@ -158,24 +158,37 @@ internal sealed class ChromeRenderer : ToolStripProfessionalRenderer
         var r = new Rectangle(0, 0, item.Width - 1, item.Height - 1);
         var radius = kind == "pill" ? r.Height / 2 : item.Owner?.LogicalToDeviceUnits(7) ?? 7;
         Ui.FillRound(g, r, radius, fill, border);
-        if (kind == "toggle") DrawToggleBox(g, item, on);
     }
 
-    /// <summary>Size of the check box of a "toggle" button (follows the text size).</summary>
-    public static int ToggleBox(ToolStripItem item) => Math.Max(10, item.Font.Height * 3 / 4);
-
-    private static void DrawToggleBox(Graphics g, ToolStripItem item, bool on)
+    /// <summary>
+    /// The check box of a "toggle" button, as its image (so the button lays out the gap to the text by itself).
+    /// Sized from the button's text; call again when it is switched or the theme changes.
+    /// </summary>
+    public static void SetToggleImage(ToolStripButton b)
     {
-        var size = ToggleBox(item);
-        var b = new Rectangle(item.Owner?.LogicalToDeviceUnits(10) ?? 10, (item.Height - size) / 2, size, size);
-        var radius = Math.Max(2, size / 4);
-        if (!on) { Ui.FillRound(g, b, radius, P.Surface, item.Enabled ? P.Muted : P.Border); return; }
-        Ui.FillRound(g, b, radius, item.Enabled ? P.Accent : Theme.Mix(P.Accent, P.Surface, 0.45));
-        var smooth = g.SmoothingMode;
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        using var pen = new Pen(P.AccentText, Math.Max(1.6f, size / 7f)) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
-        g.DrawLines(pen, new[] { new PointF(b.Left + size * 0.24f, b.Top + size * 0.52f), new PointF(b.Left + size * 0.43f, b.Top + size * 0.71f), new PointF(b.Left + size * 0.77f, b.Top + size * 0.31f) });
-        g.SmoothingMode = smooth;
+        var size = Math.Max(10, b.Font.Height * 3 / 4);
+        var bmp = new Bitmap(size + 2, size + 2);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var r = new Rectangle(1, 1, size - 1, size - 1);
+            var radius = Math.Max(2, size / 4);
+            if (!b.Checked) Ui.FillRound(g, r, radius, P.Surface, b.Enabled ? P.Muted : P.Border);
+            else
+            {
+                Ui.FillRound(g, r, radius, b.Enabled ? P.Accent : Theme.Mix(P.Accent, P.Surface, 0.45));
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using var pen = new Pen(P.AccentText, Math.Max(1.6f, size / 7f))
+                { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
+                g.DrawLines(pen, new[] { new PointF(r.Left + size * 0.24f, r.Top + size * 0.52f), new PointF(r.Left + size * 0.43f, r.Top + size * 0.71f), new PointF(r.Left + size * 0.77f, r.Top + size * 0.31f) });
+            }
+        }
+        var old = b.Image;
+        b.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
+        b.TextImageRelation = TextImageRelation.ImageBeforeText;
+        b.ImageScaling = ToolStripItemImageScaling.None;
+        b.Image = bmp;
+        old?.Dispose();
     }
 
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
@@ -231,8 +244,12 @@ internal sealed class BrandItem : ToolStripItem
     public BrandItem() { Margin = new Padding(0, 0, 14, 0); }
     private int S(int v) => Owner?.LogicalToDeviceUnits(v) ?? v;
 
+    /// <summary>Only the logo (a narrow window has no room for the name).</summary>
+    public bool Compact { get; set; }
+
     public override Size GetPreferredSize(Size constrainingSize)
     {
+        if (Compact) return new Size(S(34), S(36));
         var name = TextRenderer.MeasureText(AppInfo.Name, Theme.Big, Size.Empty, TextFormatFlags.NoPadding);
         var sub = TextRenderer.MeasureText(AppInfo.Company, Theme.Small, Size.Empty, TextFormatFlags.NoPadding);
         return new Size(S(34) + S(10) + Math.Max(name.Width, sub.Width) + S(2), Math.Max(S(36), name.Height + sub.Height));
@@ -247,6 +264,7 @@ internal sealed class BrandItem : ToolStripItem
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
             g.DrawImage(_logo, new Rectangle(0, (Height - size) / 2, size, size));
         }
+        if (Compact) return;
         var x = size + S(10);
         var name = TextRenderer.MeasureText(g, AppInfo.Name, Theme.Big, Size.Empty, TextFormatFlags.NoPadding);
         var sub = TextRenderer.MeasureText(g, AppInfo.Company, Theme.Small, Size.Empty, TextFormatFlags.NoPadding);

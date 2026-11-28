@@ -34,8 +34,12 @@ public sealed class MainForm : Form
     private readonly ToolStripDropDownButton _menu = new("☰") { ShowDropDownArrow = false, Font = Theme.HeaderBold, ToolTipText = "Repeat scan, deep scan, dark mode, settings…" };
     private readonly InputBox _rangeBox = new(210);
     private readonly InputBox _filterBox = new(250) { SearchIcon = true };
-    private readonly ToolStripControlHost _rangeHost, _filterHost;
-    private readonly int _rangeWidth, _filterWidth;
+    private readonly ToolStripControlHost _rangeHost;
+    private readonly int _rangeWidth;
+    private readonly BrandItem _brand = new();
+    private readonly ToolStripLabel _rangeLabel = new("Range") { Tag = "muted", Font = Theme.Header };
+    /// <summary>Top of the side menu: the filter box (it was in the header, which now holds the scan options).</summary>
+    private readonly Panel _navTop = new() { Dock = DockStyle.Top };
     private TextBox _txtRange => _rangeBox.Box;
     private TextBox _txtFilter => _filterBox.Box;
     private readonly ToolStripButton _btnModels = new("Get models") { Font = Theme.Header, ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
@@ -160,9 +164,7 @@ public sealed class MainForm : Form
         _reach = new ReachManager(_engine);
 
         _rangeWidth = _rangeBox.Width;
-        _filterWidth = _filterBox.Width;
         _rangeHost = new ToolStripControlHost(_rangeBox) { AutoSize = false, Size = _rangeBox.Size, Margin = new Padding(0, 0, S(8), 0) };
-        _filterHost = new ToolStripControlHost(_filterBox) { AutoSize = false, Size = _filterBox.Size };
         BuildToolbar();
         BuildBanners();
         BuildNav();
@@ -255,7 +257,7 @@ public sealed class MainForm : Form
         _txtRange.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await ScanAsync(startOver: true); } };
         new ToolTip().SetToolTip(_txtRange, "Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*");
         _txtFilter.TextChanged += (_, _) => ApplyFilter();
-        _txtFilter.PlaceholderText = "Filter: IP, name, model, vendor…";
+        _txtFilter.PlaceholderText = "Filter: IP, name, model…";
 
         foreach (var b in new ToolStripItem[] { _btnScan, _btnStop, _btnModels, _btnListen })
         {
@@ -265,13 +267,16 @@ public sealed class MainForm : Form
         _btnListen.Margin = new Padding(S(10), 0, S(4), 0);
         foreach (var t in new[] { _chkRepeat, _chkDeep })
         {
-            t.Padding = new Padding(S(10) + ChromeRenderer.ToggleBox(t) + S(7), S(6), S(12), S(6));
+            t.Padding = new Padding(S(9), S(6), S(12), S(6));
             t.Margin = new Padding(S(4), 0, S(4), 0);
+            ChromeRenderer.SetToggleImage(t);
+            t.CheckedChanged += (_, _) => ChromeRenderer.SetToggleImage(t);
+            t.EnabledChanged += (_, _) => ChromeRenderer.SetToggleImage(t);
         }
         _tools.Items.AddRange(new ToolStripItem[]
         {
-            new BrandItem(),
-            new ToolStripLabel("Range") { Tag = "muted", Font = Theme.Header, Margin = new Padding(S(6), 0, S(6), 0) },
+            _brand,
+            _rangeLabel,
             _rangeHost,
             _btnScan, _btnStop, _chkRepeat, _chkDeep, _btnModels, _btnListen,
         });
@@ -298,7 +303,8 @@ public sealed class MainForm : Form
             item.Click += (_, _) => Export(ext);
             _export.DropDownItems.Add(item);
         }
-        foreach (var b in new ToolStripItem[] { _menu, _export, _filterHost })
+        _rangeLabel.Margin = new Padding(S(6), 0, S(6), 0);
+        foreach (var b in new ToolStripItem[] { _menu, _export })
         {
             b.Alignment = ToolStripItemAlignment.Right;
             b.Margin = new Padding(S(4), 0, S(4), 0);
@@ -307,24 +313,46 @@ public sealed class MainForm : Form
         ShowListenText();
     }
 
-    private void ShowListenText()
+    private bool _listenCompact;
+
+    private void ShowListenText() => ShowListenText(_listenCompact, fit: true);
+
+    private void ShowListenText(bool compact, bool fit = false)
     {
-        _btnListen.Text = _btnListen.Checked ? "●  Listening" : "○  Not listening";
-        FitHeader();
+        _listenCompact = compact;
+        _btnListen.Text = compact ? (_btnListen.Checked ? "●" : "○") : _btnListen.Checked ? "●  Listening" : "○  Not listening";
+        if (fit) FitHeader();
     }
 
-    /// <summary>When the header is too narrow, the filter and Range boxes get shorter instead of disappearing.</summary>
+    private bool _fitting;
+
+    /// <summary>
+    /// When the header is too narrow, the Range box gets shorter, then the "Range" label, the app name, the word
+    /// "scan" of Deep scan and the word Listening go (in that order), so no button ever disappears.
+    /// </summary>
     private void FitHeader()
     {
-        if (_rangeHost.Owner == null) return;
-        var others = _tools.Items.Cast<ToolStripItem>().Where(i => i.Available && i != _rangeHost && i != _filterHost)
-            .Sum(i => i.GetPreferredSize(Size.Empty).Width + i.Margin.Horizontal);
-        var room = _tools.DisplayRectangle.Width - others - _rangeHost.Margin.Horizontal - _filterHost.Margin.Horizontal - S(6);
-        var min = F(110);
-        var filter = Math.Clamp(room - _rangeWidth, min, _filterWidth);
-        var range = Math.Clamp(room - filter, min, _rangeWidth);
-        if (_filterHost.Width != filter) _filterHost.Width = filter;
-        if (_rangeHost.Width != range) _rangeHost.Width = range;
+        if (_rangeHost.Owner == null || _fitting) return;
+        _fitting = true;
+        try
+        {
+            var min = F(110);
+            int Room() => _tools.DisplayRectangle.Width - S(6) - _rangeHost.Margin.Horizontal - _tools.Items.Cast<ToolStripItem>()
+                .Where(i => i.Available && i != _rangeHost).Sum(i => i.GetPreferredSize(Size.Empty).Width + i.Margin.Horizontal);
+            // start full, then give up the least useful text until the Range box fits at its smallest
+            _rangeLabel.Visible = true; _brand.Compact = false; _chkDeep.Text = "Deep scan"; ShowListenText(compact: false);
+            var steps = new Action[] { () => _rangeLabel.Visible = false, () => _brand.Compact = true, () => _chkDeep.Text = "Deep", () => ShowListenText(compact: true) };
+            foreach (var step in steps)
+            {
+                if (Room() >= min) break;
+                step();
+            }
+            var range = Math.Clamp(Room(), min, _rangeWidth);
+            if (_rangeHost.Width != range) _rangeHost.Width = range;
+            _tools.PerformLayout();
+            _tools.Invalidate();
+        }
+        finally { _fitting = false; }
     }
 
     private void BuildBanners()
@@ -391,8 +419,14 @@ public sealed class MainForm : Form
         _npcapCard.Margin = new Padding(0);
         _npcapCard.Click += async (_, _) => { if (!_demo) await NpcapButtonAsync(); };
         _navBottom.Controls.AddRange(new Control[] { _adapterLabel, _cmbAdapter, _npcapCard });
+        _navTop.Padding = new Padding(S(12), S(12), S(12), S(4));
+        _filterBox.Width = w;
+        _filterBox.Dock = DockStyle.Fill;
+        _navTop.Height = _filterBox.Height + _navTop.Padding.Vertical;
+        _navTop.Controls.Add(_filterBox);
         _navHost.Controls.Add(_nav);
         _navHost.Controls.Add(_navBottom);
+        _navHost.Controls.Add(_navTop);
     }
 
     private void BuildGrid()
@@ -650,6 +684,8 @@ public sealed class MainForm : Form
 
         _navHost.BackColor = p.Border;
         _navBottom.BackColor = p.Surface2;
+        _navTop.BackColor = p.Surface2;
+        foreach (var t in new[] { _chkRepeat, _chkDeep }) ChromeRenderer.SetToggleImage(t);
         _adapterLabel.ForeColor = p.Muted;
         _cmbAdapter.Invalidate();
 
@@ -805,7 +841,8 @@ public sealed class MainForm : Form
     {
         var hidden = _tools.Items.Cast<ToolStripItem>().Where(i => i.Available && i.Placement != ToolStripItemPlacement.Main)
             .Select(i => string.IsNullOrEmpty(i.Text) ? i.GetType().Name : i.Text).ToList();
-        return $"header at {ClientSize.Width}px: {(hidden.Count == 0 ? "all items shown" : "HIDDEN: " + string.Join(", ", hidden))}, range box {_rangeHost.Width}px, filter box {_filterHost.Width}px";
+        return $"header at {ClientSize.Width}px: {(hidden.Count == 0 ? "all items shown" : "HIDDEN: " + string.Join(", ", hidden))}, range box {_rangeHost.Width}px, " +
+               $"compact: {(_rangeLabel.Visible ? "" : "no Range label, ")}{(_brand.Compact ? "logo only, " : "")}Deep \"{_chkDeep.Text}\", Listening \"{_btnListen.Text}\"; filter box {_filterBox.Width}px in the side menu";
     }
 
     /// <summary>Screenshot self-check on a real Windows: the ARP table read with GetIpNetTable2 must match "arp -a".</summary>
