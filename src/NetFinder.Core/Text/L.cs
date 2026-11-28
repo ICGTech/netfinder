@@ -107,8 +107,10 @@ public static class L
     public static string T(string? english)
     {
         if (string.IsNullOrEmpty(english)) return english ?? "";
-        if (_map.TryGetValue(english, out var t) && t.Length > 0) return t;
-        Miss(english);
+        if (_map.TryGetValue(english, out var t) && t.Length > 0) return RtlStart(t);
+        // a table cell in Arabic / Urdu carries invisible left-to-right marks around English text (see Bidi)
+        if (english[0] == '\u200E' && english.Trim('\u200E') is var bare && _map.TryGetValue(bare, out t) && t.Length > 0) return RtlStart(t);
+        Miss(english.Trim('\u200E'));
         return english;
     }
 
@@ -130,8 +132,23 @@ public static class L
         else { t = key; Miss(key); }
         // in Arabic / Urdu an English value (a name, a model, "SW-1 (10.0.0.2)") keeps its own left-to-right order inside the sentence
         if (Rtl) for (var i = 0; i < args.Length; i++) args[i] = new LtrValue(args[i]);
-        try { return string.Format(CultureInfo.InvariantCulture, t, args); }
+        try { return RtlStart(string.Format(CultureInfo.InvariantCulture, t, args)); }
         catch (FormatException) { return string.Format(CultureInfo.InvariantCulture, key, args); }
+    }
+
+    /// <summary>
+    /// An Arabic / Urdu sentence that starts with an English word ("ping صغير…", "CORE-SW1 · منفذ 15") gets an invisible right-to-left
+    /// mark in front, so Windows reads the whole line right to left instead of guessing left to right from its first word.
+    /// </summary>
+    private static string RtlStart(string s)
+    {
+        if (!Rtl || s.Length == 0 || s[0] == '\u200F') return s;
+        foreach (var ch in s)
+        {
+            if (ch is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFEFC') return s; // starts right to left already
+            if (ch == '\u200E' || char.IsLetter(ch)) return HasRtlLetters(s) ? "\u200F" + s : s;
+        }
+        return s;
     }
 
     /// <summary>True when the text has Arabic, Urdu or Hebrew letters.</summary>

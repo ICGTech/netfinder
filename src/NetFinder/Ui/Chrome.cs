@@ -362,7 +362,15 @@ internal sealed class BrandItem : ToolStripItem
 
     protected override void OnPaint(PaintEventArgs e)
     {
+        // the tool bar paints all its items on one Graphics: the mirroring (Arabic / Urdu) must not stay for the next items
         var g = e.Graphics;
+        var state = g.Save();
+        try { PaintBrand(g); }
+        finally { g.Restore(state); }
+    }
+
+    private void PaintBrand(Graphics g)
+    {
         Ui.Mirror(g, 0, Width);
         var size = S(34);
         if (_logo != null)

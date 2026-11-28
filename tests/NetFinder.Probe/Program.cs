@@ -510,6 +510,8 @@ if (args.Length >= 1 && args[0] == "selftest")
         var n = 5;
         Check("arabic text with a value", NetFinder.Core.Text.L.T($"Watch {n} devices"), "مراقبة 5 أجهزة");
         Check("arabic text, missing translation stays English", NetFinder.Core.Text.L.T("No such text"), "No such text");
+        Check("arabic, a table cell's English text with marks finds its translation", NetFinder.Core.Text.L.T("\u200EPrinter\u200E"), "طابعة");
+        Check("arabic sentence that starts with an English word reads right to left", ((int)NetFinder.Core.Text.L.T("One small ping per device each time, so the network hardly notices.")[0]).ToString("X"), "200F");
         var swName = "SW-1 (10.0.0.2)";
         Check("arabic text, an English value keeps its order", NetFinder.Core.Text.L.T($"Ports of switch {swName}").Contains("\u200E" + swName + "\u200E").ToString(), "True");
         Check("arabic is right to left", NetFinder.Core.Text.L.Rtl, true);

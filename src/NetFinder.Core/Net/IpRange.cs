@@ -33,11 +33,11 @@ public readonly record struct IpRange(uint Start, uint End)
         if (string.IsNullOrWhiteSpace(text)) return true;
         foreach (var raw in text.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!TryParseOne(raw.Trim(), out var r)) { error = $"\"{raw}\" is not a valid range. Examples: 10.10.20.0/24, 10.10.20.1-254, 10.10.20.*"; return false; }
+            if (!TryParseOne(raw.Trim(), out var r)) { error = Text.L.T($"\"{raw}\" is not a valid range. Examples: 10.10.20.0/24, 10.10.20.1-254, 10.10.20.*"); return false; }
             ranges.Add(r);
         }
         var total = ranges.Sum(r => r.Count);
-        if (total > MaxAddresses) { error = $"The range has {total:N0} addresses; the limit is {MaxAddresses:N0} (a /16)."; return false; }
+        if (total > MaxAddresses) { error = Text.L.T($"The range has {total:N0} addresses; the limit is {MaxAddresses:N0} (a /16)."); return false; }
         return true;
     }
 

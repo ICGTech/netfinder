@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using NetFinder.Core.Text;
 
 namespace NetFinder.Core.Actions;
 
@@ -40,7 +41,7 @@ public static class Launcher
     public static void OpenWithHint(string target, string missingHint)
     {
         try { Open(target); }
-        catch (Win32Exception ex) { throw new InvalidOperationException(missingHint + "\n\n(" + ex.Message + ")", ex); }
+        catch (Win32Exception ex) { throw new InvalidOperationException(L.T(missingHint) + "\n\n(" + ex.Message + ")", ex); }
     }
 
     /// <summary>Run a program in a new visible console window (ping -t, ssh, telnet...).</summary>
@@ -60,8 +61,8 @@ public static class Launcher
             Run("cmd.exe", $"/v:on /k \"title SSH {ip} & set /p U=Login as: & ssh -p {port} !U!@{ip}\"");
             return;
         }
-        throw new InvalidOperationException("No SSH program found on this PC.\n\nInstall PuTTY (putty.org), or turn on Windows' \"OpenSSH Client\" " +
-                                            "(Settings → Apps → Optional features → Add a feature → OpenSSH Client).");
+        throw new InvalidOperationException(L.T("No SSH program found on this PC.\n\nInstall PuTTY (putty.org), or turn on Windows' \"OpenSSH Client\" " +
+                                            "(Settings → Apps → Optional features → Add a feature → OpenSSH Client)."));
     }
 
     /// <summary>Telnet: Windows' telnet.exe if it is turned on, else PuTTY.</summary>
@@ -73,8 +74,8 @@ public static class Launcher
             return;
         }
         if (FindTool("putty.exe", "PuTTY") is { } putty) { Run(putty, $"-telnet {ip} -P {port}"); return; }
-        throw new InvalidOperationException("Windows' Telnet client is turned off on this PC.\n\nTurn it on once: Start → \"Turn Windows features on or off\" → tick \"Telnet Client\" → OK.\n" +
-                                            "Or install PuTTY (putty.org); it does Telnet and SSH.");
+        throw new InvalidOperationException(L.T("Windows' Telnet client is turned off on this PC.\n\nTurn it on once: Start → \"Turn Windows features on or off\" → tick \"Telnet Client\" → OK.\n" +
+                                            "Or install PuTTY (putty.org); it does Telnet and SSH."));
     }
 
     public const string WinboxDownload = "https://mikrotik.com/download";
@@ -85,9 +86,10 @@ public static class Launcher
         var exe = FindTool("winbox64.exe", "Winbox", "MikroTik") ?? FindTool("winbox.exe", "Winbox", "MikroTik");
         if (exe != null) { Run(exe, ip); return; }
         Open(WinboxDownload);
-        throw new InvalidOperationException("Winbox is not on this PC, so the MikroTik download page was opened.\n\n" +
-                                            "Download winbox64.exe and put it in your Downloads folder or next to NetFinder.exe; the button will find it next time.\n" +
-                                            $"(Meanwhile you can open the router's web page: http://{ip})");
+        var page = $"http://{ip}";
+        throw new InvalidOperationException(L.T($"Winbox is not on this PC, so the MikroTik download page was opened.\n\n" +
+                                            $"Download winbox64.exe and put it in your Downloads folder or next to NetFinder.exe; the button will find it next time.\n" +
+                                            $"(Meanwhile you can open the router's web page: {page})"));
     }
 
     /// <summary>VNC: a vnc:// handler, or a known VNC viewer.</summary>

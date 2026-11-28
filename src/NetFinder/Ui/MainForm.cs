@@ -477,6 +477,9 @@ public sealed class MainForm : Form
         }
         Col("Type", T("Type"), 160);
         var watchCol = Col("Watch", T("Watch"), 122);
+        if (Core.Text.L.Current.Code != "en") // the chip's text is longer in other languages: the column fits the longest one
+            watchCol.Width = Math.Max(watchCol.Width, new[] { T($"Up · {Ms(888)}"), T($"Down · {Ago(DateTime.Now.AddMinutes(-59))}"), T("Checking…") }
+                .Max(t => TextRenderer.MeasureText("●  " + t, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width) + S(32));
         watchCol.Visible = false;
         watchCol.ToolTipText = T("Ping result of the watched devices (☰ menu → Watch devices…)");
         Col("Ip", T("IP address"), 124).DefaultCellStyle.Font = Theme.Mono;
@@ -557,7 +560,7 @@ public sealed class MainForm : Form
         {
             e.PaintBackground(e.CellBounds, selected);
             Ui.Mirror(g, e.CellBounds.Left, e.CellBounds.Right);
-            var type = e.FormattedValue?.ToString() ?? "";
+            var type = e.Value?.ToString() ?? ""; // the value, not the shown text (in Arabic / Urdu that carries left-to-right marks)
             var size = Math.Clamp(e.CellBounds.Height - S(12), 14, S(28));
             var r = new Rectangle(e.CellBounds.X + S(10), e.CellBounds.Y + (e.CellBounds.Height - size) / 2, size, size);
             Theme.DrawTypeTile(g, r, type, back);
@@ -1472,7 +1475,7 @@ public sealed class MainForm : Form
         var rangeText = _txtRange.Text.Trim();
         if (!IpRange.TryParseList(rangeText, out _, out var err))
         {
-            Ui.Box(this, err, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Ui.Box(this, err ?? "", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         if (rangeText != _settings.ScanRanges) { _settings.ScanRanges = rangeText; _settings.Save(); }
@@ -2399,6 +2402,20 @@ public sealed class MainForm : Form
         return m.Groups["n"].Success ? text + " " + T($"({m.Groups["n"].Value} devices)") : text;
     }
 
+    /// <summary>A value of the "All details" list in the window's language (the readers write the values in English).</summary>
+    private static string InfoValue(string key, string value)
+    {
+        if (Core.Text.L.Current.Code == "en" || value.Length == 0) return value;
+        if (key == "Ink / toner") return string.Join(" · ", value.Split(" · ").Select(Ink.PartText));
+        if (key == Core.Net.PortMap.PortKey) return SpotText(value);
+        var m = Regex.Match(value, @"^(\d+) of (\d+) up · (\d+) MAC addresses learned$");
+        if (m.Success) { string a = m.Groups[1].Value, b = m.Groups[2].Value, c = m.Groups[3].Value; return T($"{a} of {b} up · {c} MAC addresses learned"); }
+        m = Regex.Match(value, @"^yes, gateway (?<gw>[^,]+)(?<rest>,.*)?$");
+        if (m.Success) { var gw = m.Groups["gw"].Value; return T($"yes, gateway {gw}") + m.Groups["rest"].Value; }
+        if (value.StartsWith("yes, ")) return T("yes") + value[3..];
+        return T(value);
+    }
+
     private void RenderDetails(Device d)
     {
         _details.Rows.Clear();
@@ -2429,7 +2446,7 @@ public sealed class MainForm : Form
                     for (var i = 0; i < disks.Count; i++) Add(T($"Disk {i + 1}"), disks[i]);
                 else if (kv.Key == "Drives")
                     foreach (var dr in SplitDisks(kv.Value)) Add(T("Drive ") + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]);
-                else Add(T(kv.Key), T(kv.Value));
+                else Add(T(kv.Key), InfoValue(kv.Key, kv.Value));
             }
         }
         FitDetails();
@@ -2692,7 +2709,7 @@ public sealed class MainForm : Form
             lock (d)
             {
                 var name = d.DisplayName.Length > 0 ? d.DisplayName : d.Model ?? "";
-                return $"{d.EffectiveType} {name} ({ip})".Replace("  ", " ");
+                return $"{T(d.EffectiveType)} {name} ({ip})".Replace("  ", " ");
             }
         var w = _watchList.FirstOrDefault(x => x.Ip == ip);
         return w != null && w.Name.Length > 0 ? $"{w.Name} ({ip})" : ip;

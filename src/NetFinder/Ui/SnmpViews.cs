@@ -37,17 +37,28 @@ internal static class Ink
     public static string Text(PrinterSupply s) => Name(s) + " " + Level(s);
 
     /// <summary>"Black toner", "Drum (cyan)", "Waste toner box" in the window's language (the names are made in English by the SNMP reader).</summary>
-    public static string Name(PrinterSupply s)
+    public static string Name(PrinterSupply s) => NameText(s.Name);
+
+    /// <summary>"Black toner 62%", "Waste toner box 35% full", "Drum OK" (as written in the details) in the window's language.</summary>
+    public static string PartText(string part)
     {
-        var m = Regex.Match(s.Name, @"^(?<c>[A-Z][a-z]+(?: [a-z]+)?) (?<k>toner|ink|ribbon|wax)$");
+        var m = Regex.Match(part, @"^(?<n>.+) (?<p>\d+)%(?<full> full)?$");
+        if (m.Success) { var p = m.Groups["p"].Value; return NameText(m.Groups["n"].Value) + " " + (m.Groups["full"].Success ? T($"{p}% full") : p + "%"); }
+        m = Regex.Match(part, @"^(?<n>.+) (?<s>\S+)$");
+        return m.Success ? NameText(m.Groups["n"].Value) + " " + T(m.Groups["s"].Value) : T(part);
+    }
+
+    private static string NameText(string name)
+    {
+        var m = Regex.Match(name, @"^(?<c>[A-Z][a-z]+(?: [a-z]+)?) (?<k>toner|ink|ribbon|wax)$");
         if (m.Success)
         {
             var c = T(m.Groups["c"].Value);
             return m.Groups["k"].Value switch { "toner" => T($"{c} toner"), "ink" => T($"{c} ink"), "ribbon" => T($"{c} ribbon"), _ => T($"{c} wax") };
         }
-        m = Regex.Match(s.Name, @"^(?<k>Drum|Developer) \((?<c>[a-z ]+)\)$");
+        m = Regex.Match(name, @"^(?<k>Drum|Developer) \((?<c>[a-z ]+)\)$");
         if (m.Success) return T(m.Groups["k"].Value) + " (" + T(char.ToUpperInvariant(m.Groups["c"].Value[0]) + m.Groups["c"].Value[1..]) + ")";
-        return T(s.Name);
+        return T(name);
     }
 
     /// <summary>Paints "● 62%  ● 18%  ● 9%  ● OK" in a list cell (low ones in red).</summary>
