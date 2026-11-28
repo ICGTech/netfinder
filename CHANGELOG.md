@@ -4,6 +4,10 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.14
+- The "Get models" and Windows login windows grow to fit their text, so nothing is cut off (also with bigger text or scaling in Windows).
+- Columns, the side menu and the details pane also grow when Windows shows bigger text.
+
 ## 1.1.13
 - New look: a side menu with the count of each kind of device (PCs, servers, cameras, printers…) and of each network.
 - The selected device opens on the right: its model, how to open it, hardware with SSD / HDD and drive space, open ports.

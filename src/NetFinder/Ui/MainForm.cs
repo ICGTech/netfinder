@@ -113,6 +113,8 @@ public sealed class MainForm : Form
     private readonly string? _shotDir = Environment.GetEnvironmentVariable("NETFINDER_SCREENSHOT");
 
     private int S(int px) => LogicalToDeviceUnits(px);
+    /// <summary>Like S, and also bigger when Windows makes the text bigger than the scaling (so columns and panes still fit their text).</summary>
+    private int F(int px) => (int)Math.Round(S(px) * Ui.TextFactor(this));
 
     public MainForm(bool justUpdated = false)
     {
@@ -196,8 +198,8 @@ public sealed class MainForm : Form
         try
         {
             _split.Panel1MinSize = S(360);
-            _split.Panel2MinSize = S(340);
-            _split.SplitterDistance = Math.Max(S(360), _split.Width - S(412));
+            _split.Panel2MinSize = Math.Min(F(340), _split.Width / 2);
+            _split.SplitterDistance = Math.Max(S(360), _split.Width - Math.Min(F(412), _split.Width * 45 / 100));
         }
         catch (InvalidOperationException) { }
         catch (ArgumentOutOfRangeException) { }
@@ -295,7 +297,7 @@ public sealed class MainForm : Form
 
     private void BuildNav()
     {
-        _navHost.Width = S(220);
+        _navHost.Width = F(220);
         _navHost.Padding = new Padding(0, 0, 1, 0);
         _nav.Section("Devices");
         _nav.Add("all", "All devices");
@@ -355,13 +357,13 @@ public sealed class MainForm : Form
         _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
         _grid.DefaultCellStyle.Padding = new Padding(S(6), 0, S(6), 0);
-        _grid.RowTemplate.Height = S(38);
+        _grid.RowTemplate.Height = F(38);
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         typeof(DataGridView).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(_grid, true);
 
         DataGridViewColumn Col(string name, string header, int width)
         {
-            var c = new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = S(width), SortMode = DataGridViewColumnSortMode.Automatic, MinimumWidth = S(50) };
+            var c = new DataGridViewTextBoxColumn { Name = name, HeaderText = header, Width = F(width), SortMode = DataGridViewColumnSortMode.Automatic, MinimumWidth = S(50) };
             _grid.Columns.Add(c);
             return c;
         }
@@ -372,7 +374,7 @@ public sealed class MainForm : Form
         Col("Vendor", "Vendor", 105);
         _grid.Columns.Add(new DataGridViewLinkColumn
         {
-            Name = "Open", HeaderText = "Open", Width = S(100), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
+            Name = "Open", HeaderText = "Open", Width = F(100), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
             LinkBehavior = LinkBehavior.HoverUnderline, ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
         });
         Col("Mac", "MAC", 135).DefaultCellStyle.Font = Theme.Mono;

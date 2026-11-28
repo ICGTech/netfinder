@@ -11,6 +11,16 @@ internal static class Ui
 {
     public static int S(Control c, int px) => c.LogicalToDeviceUnits(px);
 
+    /// <summary>
+    /// How much bigger the text is than the scaling expects (1 normally). Windows can make text bigger than the
+    /// display scaling (Accessibility → Text size); sizes that hold text grow by this too.
+    /// </summary>
+    public static double TextFactor(Control c) =>
+        Math.Max(1.0, TextRenderer.MeasureText("Wg", Theme.Base, Size.Empty, TextFormatFlags.NoPadding).Height / (double)c.LogicalToDeviceUnits(16));
+
+    /// <summary>Height of one line of a font.</summary>
+    public static int LineHeight(Font f) => TextRenderer.MeasureText("Wg", f, Size.Empty, TextFormatFlags.NoPadding).Height;
+
     public static void FillRound(Graphics g, Rectangle r, int radius, Color fill, Color? border = null)
     {
         if (r.Width <= 1 || r.Height <= 1) return;
@@ -232,7 +242,7 @@ internal sealed class InputBox : Control
     {
         Ui.Painted(this);
         Controls.Add(Box);
-        Size = new Size(LogicalToDeviceUnits(width), LogicalToDeviceUnits(34));
+        Size = new Size((int)(LogicalToDeviceUnits(width) * Ui.TextFactor(this)), Math.Max(LogicalToDeviceUnits(34), Box.PreferredHeight + LogicalToDeviceUnits(12)));
         Box.GotFocus += (_, _) => Invalidate();
         Box.LostFocus += (_, _) => Invalidate();
         Cursor = Cursors.IBeam;
@@ -318,8 +328,8 @@ internal sealed class NavList : Control
         {
             if (i.Hidden) continue;
             int h;
-            if (i.IsSection) { if (!first) y += S(16); h = S(24); }
-            else h = i.Sub != null ? S(48) : S(36);
+            if (i.IsSection) { if (!first) y += S(16); h = Math.Max(S(24), Ui.LineHeight(Theme.Section) + S(10)); }
+            else h = i.Sub != null ? Math.Max(S(48), Ui.LineHeight(Theme.Header) + Ui.LineHeight(Theme.Small) + S(16)) : Math.Max(S(36), Ui.LineHeight(Theme.Header) + S(18));
             _layout.Add((i, new Rectangle(S(10), y, Width - S(20), h)));
             y += h + S(2);
             first = false;
@@ -346,13 +356,13 @@ internal sealed class NavList : Control
             var font = sel ? Theme.HeaderBold : Theme.Header;
             var count = i.Count.ToString();
             var cw = TextRenderer.MeasureText(g, count, font, Size.Empty, TextFormatFlags.NoPadding).Width;
-            var lineH = S(36);
-            var textR = new Rectangle(r.X + S(12), r.Y + (i.Sub != null ? S(5) : 0), r.Width - S(24) - cw - S(6), i.Sub != null ? S(22) : lineH);
+            var textH = Ui.LineHeight(font) + S(4);
+            var textR = new Rectangle(r.X + S(12), r.Y + (i.Sub != null ? S(7) : 0), r.Width - S(24) - cw - S(6), i.Sub != null ? textH : r.Height);
             TextRenderer.DrawText(g, i.Text, font, textR, sel ? P.AccentSoftText : P.Text, Ui.Line);
             TextRenderer.DrawText(g, count, font, new Rectangle(r.Right - S(12) - cw, textR.Y, cw + 2, textR.Height),
                 sel ? P.AccentSoftText : i.Count == 0 ? Theme.Mix(P.Muted, P.Surface2, 0.35) : P.Muted, Ui.Line);
             if (i.Sub != null)
-                TextRenderer.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), S(18)), sel ? P.AccentSoftText : P.Muted, Ui.Line);
+                TextRenderer.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), Ui.LineHeight(Theme.Small) + S(2)), sel ? P.AccentSoftText : P.Muted, Ui.Line);
         }
     }
 
@@ -425,7 +435,13 @@ internal sealed class SegmentedTabs : Control
     private int _selected, _hover = -1;
     public event Action<int>? SelectedIndexChanged;
 
-    public SegmentedTabs(params string[] tabs) { Ui.Painted(this); _tabs.AddRange(tabs); Height = LogicalToDeviceUnits(38); Cursor = Cursors.Hand; }
+    public SegmentedTabs(params string[] tabs)
+    {
+        Ui.Painted(this);
+        _tabs.AddRange(tabs);
+        Height = Math.Max(LogicalToDeviceUnits(38), Ui.LineHeight(Theme.HeaderBold) + LogicalToDeviceUnits(18));
+        Cursor = Cursors.Hand;
+    }
     private int S(int v) => LogicalToDeviceUnits(v);
 
     public int SelectedIndex
@@ -471,7 +487,11 @@ internal sealed class DetailsHeader : Control
 {
     private string? _type;
     private string _title = "", _sub = "";
-    public DetailsHeader() { Ui.Painted(this); Height = LogicalToDeviceUnits(64); }
+    public DetailsHeader()
+    {
+        Ui.Painted(this);
+        Height = Math.Max(LogicalToDeviceUnits(64), Ui.LineHeight(Theme.MonoTitle) + 2 * Ui.LineHeight(Theme.Base) + LogicalToDeviceUnits(8));
+    }
     private int S(int v) => LogicalToDeviceUnits(v);
 
     public void Show(string? type, string title, string sub)
