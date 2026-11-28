@@ -23,6 +23,7 @@ public sealed class SnmpEnricher : IDeviceEnricher
         lock (device) ip = device.Ip;
         if (ip == null) return;
         var sysOids = new[] { Snmp.SysDescr, Snmp.SysObjectId, Snmp.SysName, Snmp.SysLocation };
+        lock (device) device.SnmpTriedAt = DateTime.Now;
         foreach (var community in ctx.Settings.SnmpCommunityList)
         {
             // v2c and v1 at the same time (old printers speak only v1); a wrong community gets no answer at all
@@ -73,7 +74,43 @@ public sealed class SnmpEnricher : IDeviceEnricher
                 if (printerModel != null) d.OfferModel(printerModel, "SNMP printer", 80);
                 if (printer?.GetValueOrDefault(Snmp.PrinterSerial) is { Length: > 0 } ps) d.Info["Serial number"] = ps;
             });
+            await ReadTablesAsync(device, ctx.Engine, ip, community, version, maker, ct);
             return;
+        }
+        ctx.Engine.Store.Touch(device, _ => { }); // no answer: the device panel shows it (and where to type another community)
+    }
+
+    /// <summary>Toner / ink levels of a printer; ports and learned MACs of a switch; ARP table of a router.</summary>
+    private static async Task ReadTablesAsync(Device device, NetworkEngine engine, IPAddress ip, string community, int version, string? maker, CancellationToken ct)
+    {
+        var printer = await SnmpTables.ReadPrinterAsync(ip, community, version, ct);
+        var sw = await SnmpTables.ReadSwitchAsync(ip, community, version, maker, ct);
+        if (printer == null && sw == null) return;
+        engine.Store.Touch(device, d =>
+        {
+            if (printer != null)
+            {
+                d.Printer = printer;
+                if (printer.Pages is { } pages) d.Info["Pages printed"] = pages.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+                if (printer.Status != null) d.Info["Printer status"] = printer.Status;
+                if (printer.Supplies.Count > 0) d.Info["Ink / toner"] = string.Join(" · ", printer.Supplies.Select(x => x.Text));
+            }
+            if (sw != null)
+            {
+                d.Switch = sw;
+                if (sw.IsBridge) d.Info["Switch ports"] = $"{sw.Up} of {sw.Ports.Count} up · {sw.MacCount} MAC addresses learned";
+                if (sw.Arp.Count > 0) d.Info["ARP table (SNMP)"] = $"{sw.Arp.Count} entries";
+            }
+        });
+        if (printer != null)
+            engine.Log($"SNMP {ip}: printer " + (printer.Supplies.Count > 0 ? string.Join(", ", printer.Supplies.Select(x => x.Text)) : "(no supply levels)") +
+                       (printer.Pages is { } p ? $", {p:N0} pages" : "") + (printer.Status != null ? $", {printer.Status}" : ""));
+        if (sw != null)
+        {
+            engine.Log(sw.IsBridge
+                ? $"SNMP {ip}: switch, {sw.Up} of {sw.Ports.Count} ports up, {sw.MacCount} MAC addresses learned" + (sw.Arp.Count > 0 ? $", ARP table {sw.Arp.Count}" : "")
+                : $"SNMP {ip}: router, ARP table {sw.Arp.Count} entries");
+            PortMap.Apply(engine.Store);
         }
     }
 

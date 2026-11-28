@@ -371,6 +371,104 @@ if (args.Length >= 1 && args[0] == "selftest")
         Check("watch removed target", w.Get("10.0.0.3") == null, true);
         w.Stop();
     }
+    {
+        // 1.1.21: SNMP printer supplies and switch ports, against two fake agents
+        var port = 16100 + Random.Shared.Next(0, 800);
+        NetFinder.Core.Net.Snmp.Port = port;
+        var P = "1.3.6.1.2.1.43.11.1.1";
+        var prn = new List<(string, byte, byte[])>();
+        void R(List<(string, byte, byte[])> l, string oid, (byte T, byte[] V) v) => l.Add((oid, v.T, v.V));
+        R(prn, "1.3.6.1.2.1.1.1.0", FakeSnmpAgent.Str("SHARP MX-3114N"));
+        R(prn, "1.3.6.1.2.1.1.5.0", FakeSnmpAgent.Str("PRN-2F"));
+        R(prn, "1.3.6.1.2.1.25.3.5.1.1.1", FakeSnmpAgent.Int(3));
+        R(prn, "1.3.6.1.2.1.25.3.5.1.2.1", FakeSnmpAgent.Bytes(0x20, 0x00));
+        // rows 1.1–1.6: black (tenths of a mm, 62 %), cyan (max 100), magenta (percent, max unknown), yellow ("some left"), waste box, drum (unknown)
+        var sup = new[] { (1, 3, 3, "Black Toner", 13, 24000, 14880), (2, 3, 3, "Cyan Toner", 19, 100, 18), (3, 3, 3, "Magenta Toner", 19, -2, 9),
+                          (4, 3, 3, "Yellow Toner", 19, 100, -3), (0, 4, 4, "Waste Toner Box", 19, 100, 35), (0, 3, 9, "Drum Unit", 19, 100, -2) };
+        for (var i = 0; i < sup.Length; i++)
+        {
+            var (ci, cls, type, descr, unit, max, level) = sup[i];
+            var ix = $"1.{i + 1}";
+            R(prn, $"{P}.3.{ix}", FakeSnmpAgent.Int(ci)); R(prn, $"{P}.4.{ix}", FakeSnmpAgent.Int(cls)); R(prn, $"{P}.5.{ix}", FakeSnmpAgent.Int(type));
+            R(prn, $"{P}.6.{ix}", FakeSnmpAgent.Str(descr)); R(prn, $"{P}.7.{ix}", FakeSnmpAgent.Int(unit)); R(prn, $"{P}.8.{ix}", FakeSnmpAgent.Int(max)); R(prn, $"{P}.9.{ix}", FakeSnmpAgent.Int(level));
+        }
+        foreach (var (i, c) in new[] { (1, "black"), (2, "cyan"), (3, "magenta"), (4, "yellow") }) R(prn, $"1.3.6.1.2.1.43.12.1.1.4.1.{i}", FakeSnmpAgent.Str(c));
+        R(prn, "1.3.6.1.2.1.43.10.2.1.4.1.1", FakeSnmpAgent.Counter(48213));
+        R(prn, "1.3.6.1.2.1.43.16.5.1.2.1.1", FakeSnmpAgent.Str("Magenta toner low"));
+        R(prn, "1.3.6.1.2.1.44.1.0", FakeSnmpAgent.Int(1)); // something after the Printer-MIB, so walks have to stop by themselves
+
+        string A = "AA:00:00:00:00:01", B = "AA:00:00:00:00:02", C = "AA:00:00:00:00:03", D = "AA:00:00:00:00:04", E = "AA:00:00:00:00:05", F = "AA:00:00:00:00:06";
+        string MacIdx(string m) => string.Join(".", m.Split(':').Select(h => Convert.ToInt32(h, 16)));
+        var sw = new List<(string, byte, byte[])>();
+        R(sw, "1.3.6.1.2.1.1.1.0", FakeSnmpAgent.Str("Aruba JL260A 2930F-48G-PoE+ Switch"));
+        R(sw, "1.3.6.1.2.1.1.2.0", FakeSnmpAgent.Oid("1.3.6.1.4.1.11.2.3.7.11.181"));
+        R(sw, "1.3.6.1.2.1.1.5.0", FakeSnmpAgent.Str("CORE-SW1"));
+        R(sw, "1.3.6.1.2.1.4.1.0", FakeSnmpAgent.Int(1));
+        R(sw, "1.3.6.1.2.1.17.1.2.0", FakeSnmpAgent.Int(6));
+        foreach (var (bp, ifx) in new[] { (1, 1), (2, 2), (3, 3), (4, 49), (5, 5), (6, 6) }) R(sw, $"1.3.6.1.2.1.17.1.4.1.2.{bp}", FakeSnmpAgent.Int(ifx));
+        // A on port 1, B on 2, C + D + F behind port 3 (a Wi-Fi AP), A and E on the uplink 4 too (another switch learned them through it)
+        foreach (var (vlan, mac, bp) in new[] { (1, A, 1), (1, B, 2), (1, C, 3), (1, D, 3), (20, F, 3), (1, E, 4), (20, A, 4), (1, "AA:00:00:00:00:FF", 0) })
+            R(sw, $"1.3.6.1.2.1.17.7.1.2.2.1.2.{vlan}.{MacIdx(mac)}", FakeSnmpAgent.Int(bp));
+        foreach (var (ifx, name, type, oper, admin, speed, alias) in new[] { (1, "1", 6, 1, 1, 1000u, "Reception PC"), (2, "2", 6, 1, 1, 100u, ""), (3, "3", 6, 1, 1, 1000u, "AP 2nd floor"),
+                     (5, "5", 6, 2, 1, 0u, ""), (6, "6", 6, 2, 2, 0u, ""), (49, "Trk1", 161, 1, 1, 10000u, "to SW2"), (100, "VLAN1", 53, 1, 1, 0u, "") })
+        {
+            R(sw, $"1.3.6.1.2.1.2.2.1.2.{ifx}", FakeSnmpAgent.Str("port " + name)); R(sw, $"1.3.6.1.2.1.2.2.1.3.{ifx}", FakeSnmpAgent.Int(type));
+            R(sw, $"1.3.6.1.2.1.2.2.1.7.{ifx}", FakeSnmpAgent.Int(admin)); R(sw, $"1.3.6.1.2.1.2.2.1.8.{ifx}", FakeSnmpAgent.Int(oper));
+            R(sw, $"1.3.6.1.2.1.31.1.1.1.1.{ifx}", FakeSnmpAgent.Str(name)); R(sw, $"1.3.6.1.2.1.31.1.1.1.15.{ifx}", FakeSnmpAgent.Gauge(speed));
+            R(sw, $"1.3.6.1.2.1.31.1.1.1.18.{ifx}", FakeSnmpAgent.Str(alias));
+        }
+        R(sw, "1.3.6.1.2.1.4.22.1.2.100.192.168.5.20", FakeSnmpAgent.Bytes(0xAA, 0, 0, 0, 0, 0x06));
+        R(sw, "1.3.6.1.2.1.4.22.1.2.100.192.168.5.255", FakeSnmpAgent.Bytes(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF));
+
+        var prnIp = System.Net.IPAddress.Parse("127.0.0.2");
+        var swIp = System.Net.IPAddress.Parse("127.0.0.3");
+        using var agentP = new FakeSnmpAgent(prnIp, port, "public", prn);
+        using var agentS = new FakeSnmpAgent(swIp, port, "secret", sw);
+        foreach (var v in new[] { 1, 0 })
+        {
+            var ps = await NetFinder.Core.Net.SnmpTables.ReadPrinterAsync(prnIp, "public", v, CancellationToken.None);
+            var tag = v == 1 ? "v2c" : "v1";
+            Check($"printer {tag} supplies", ps == null ? null : string.Join(" | ", ps.Supplies.Select(x => $"{x.Text} {x.Color} {(x.Low ? "LOW" : "")}".Trim())),
+                "Black toner 62% black | Cyan toner 18% cyan | Magenta toner 9% magenta LOW | Yellow toner OK yellow | Waste toner box 35% full | Drum Unknown");
+            Check($"printer {tag} pages, status, alerts", ps == null ? null : $"{ps.Pages} {ps.Status} [{string.Join(", ", ps.Alerts)}]", "48213 Magenta toner low [Toner low]");
+            Check($"printer {tag} list text", ps?.SuppliesText, "Black toner 62% · Cyan toner 18% · Magenta toner 9% · Yellow toner OK");
+        }
+        Check("printer walks use GETBULK", agentP.BulkRequests > 0, true);
+        Check("not a printer", await NetFinder.Core.Net.SnmpTables.ReadPrinterAsync(swIp, "secret", 1, CancellationToken.None), null);
+        Check("wrong community: no answer", await NetFinder.Core.Net.SnmpTables.ReadSwitchAsync(swIp, "public", 1, null, CancellationToken.None), null);
+        Check("printer is no switch", await NetFinder.Core.Net.SnmpTables.ReadSwitchAsync(prnIp, "public", 1, null, CancellationToken.None), null);
+        var st = await NetFinder.Core.Net.SnmpTables.ReadSwitchAsync(swIp, "secret", 1, "HP", CancellationToken.None);
+        Check("switch ports", st == null ? null : string.Join(" | ", st.Ports.Select(p => $"{p.Name} {p.StatusText} {p.SpeedText} {p.Macs.Count} {p.Alias}".Trim())),
+            "1 Up 1 Gbps 1 Reception PC | 2 Up 100 Mbps 1 | 3 Up 1 Gbps 3 AP 2nd floor | 5 Down  0 | 6 Disabled  0 | Trk1 Up 10 Gbps 2 to SW2");
+        Check("switch vlans on port 3", st == null ? null : string.Join(",", st.Ports.First(p => p.Name == "3").Vlans), "1,20");
+        Check("switch arp", st == null ? null : string.Join(", ", st.Arp.Select(kv => kv.Key + "=" + kv.Value)), "192.168.5.20=AA:00:00:00:00:06");
+        Check("switch counts", st == null ? null : $"{st.Up}/{st.Ports.Count} {st.MacCount}", "4/6 7");
+        var st1 = await NetFinder.Core.Net.SnmpTables.ReadSwitchAsync(swIp, "secret", 0, "HP", CancellationToken.None);
+        Check("switch v1 same ports", st1 == null ? null : string.Join(",", st1.Ports.Select(p => $"{p.Name}:{p.Macs.Count}")), "1:1,2:1,3:3,5:0,6:0,Trk1:2");
+
+        // where each device is plugged in
+        var store = new DeviceStore();
+        store.Classifiers.Add(new NetFinder.Core.Classifiers.BuiltInClassifier());
+        var swDev = store.ObserveIp(System.Net.IPAddress.Parse("10.9.0.2"), "Ping", null, d => { d.Hostname = "CORE-SW1"; d.Switch = st; });
+        var pc = store.Observe(A, "ARP", null, System.Net.IPAddress.Parse("10.9.0.45"))!;
+        var phone = store.Observe(C, "ARP", null, System.Net.IPAddress.Parse("10.9.0.88"))!;
+        var far = store.ObserveIp(System.Net.IPAddress.Parse("192.168.5.20"), "Ping", null);
+        var lone = store.Observe("AA:00:00:00:00:77", "ARP", null, System.Net.IPAddress.Parse("10.9.0.77"))!;
+        Check("port map changed", NetFinder.Core.Net.PortMap.Apply(store), 3);
+        Check("pc port (its own port, not the uplink)", pc.Info.GetValueOrDefault("Switch port"), "CORE-SW1 · port 1");
+        Check("phone behind an AP", phone.Info.GetValueOrDefault("Switch port"), "CORE-SW1 · port 3 (3 devices)");
+        Check("routed device via the router's ARP", $"{far.Info.GetValueOrDefault("MAC (router's ARP table)")} | {far.Info.GetValueOrDefault("Switch port")}", "AA:00:00:00:00:06 | CORE-SW1 · port 3 (3 devices)");
+        Check("unknown MAC: no port", lone.Info.GetValueOrDefault("Switch port"), null);
+        Check("port map second time: nothing changed", NetFinder.Core.Net.PortMap.Apply(store), 0);
+        // the classifier sees the switch and the printer
+        var swType = store.ObserveIp(System.Net.IPAddress.Parse("10.9.0.3"), "Ping", null, d => d.Switch = st);
+        Check("switch type from SNMP", swType.Type, DeviceTypes.Switch);
+
+        Check("color from Kyocera code", NetFinder.Core.Net.SnmpTables.ColorFromText("TK-5240K"), "black");
+        Check("port name from long ifDescr", NetFinder.Core.Net.SnmpTables.PortName("", "D-Link DES-1210-28 R2.00.006 Port 5", 5), "Port 5");
+        Check("port name TP-Link", NetFinder.Core.Net.SnmpTables.PortName(null, "gigabitEthernet 1/0/5 : copper", 5), "gigabitEthernet 1/0/5");
+        NetFinder.Core.Net.Snmp.Port = 161;
+    }
     Console.WriteLine(fails == 0 ? "ALL OK" : $"{fails} FAILED");
     return;
 }

@@ -144,6 +144,8 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         if (d.Info.GetValueOrDefault("Maker (SNMP)") is { } sm && !sm.Equals(d.Vendor, StringComparison.OrdinalIgnoreCase)) Match(VendorRules, sm, s, "SNMP maker");
         if (d.Info.GetValueOrDefault("ONVIF types")?.Contains("NetworkVideoTransmitter", StringComparison.OrdinalIgnoreCase) == true) s.Add(T.Camera, 60, "ONVIF video device");
         if (d.Sources.Contains("IPP")) s.Add(T.Printer, 80, "answers IPP (printer)");
+        if (d.Printer is { Supplies.Count: > 0 }) s.Add(T.Printer, 90, "SNMP: toner / ink levels");
+        if (d.Switch is { IsBridge: true } sw && sw.Ports.Count >= 5) s.Add(T.Switch, 70, $"SNMP: switch with {sw.Ports.Count} ports");
         if (d.Info.ContainsKey("Windows")) s.Add(T.WindowsPc, 120, "Windows (WMI)");
         foreach (var n in new[] { d.CustomName, d.Hostname, d.Info.GetValueOrDefault("NetBIOS name"), d.Info.GetValueOrDefault("mDNS name"), d.Info.GetValueOrDefault("mDNS friendly name") })
             Match(NameRules, n, s, "name");

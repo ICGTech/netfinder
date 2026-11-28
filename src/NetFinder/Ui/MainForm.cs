@@ -473,6 +473,13 @@ public sealed class MainForm : Form
         Col("Ip", "IP address", 124).DefaultCellStyle.Font = Theme.Mono;
         Col("Name", "Name", 140);
         Col("Model", "Model", 180).DefaultCellStyle.Font = Theme.Bold;
+        // shown once a printer told its toner levels / a switch told its ports (SNMP)
+        var inkCol = Col("Ink", "Ink / toner", 200);
+        inkCol.Visible = false;
+        inkCol.ToolTipText = "Toner or ink left in each printer (read over SNMP)";
+        var portCol = Col("SwPort", "Switch port", 170);
+        portCol.Visible = false;
+        portCol.ToolTipText = "The switch and port each device is plugged into (read from the switches over SNMP)";
         Col("Vendor", "Vendor", 105);
         _grid.Columns.Add(new DataGridViewLinkColumn
         {
@@ -548,6 +555,12 @@ public sealed class MainForm : Form
             TextRenderer.DrawText(g, type, Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line);
             e.Handled = true;
         }
+        else if (name == "Ink" && _grid.Rows[e.RowIndex].Tag is Device { Printer: { Supplies.Count: > 0 } pst })
+        {
+            e.PaintBackground(e.CellBounds, selected);
+            Ink.PaintCell(g, e.CellBounds, pst, S);
+            e.Handled = true;
+        }
         else if (name == "Watch" && e.FormattedValue?.ToString() is { Length: > 0 } watch)
         {
             e.PaintBackground(e.CellBounds, selected);
@@ -603,6 +616,7 @@ public sealed class MainForm : Form
             watchThis.Checked = _watcher.Get(ip) != null;
         };
         m.Items.Add("Get model", null, async (_, _) => { if (SelectedDevice() is { } d) await GetModelAsync(d); });
+        m.Items.Add("Read ink levels / switch ports (SNMP)", null, async (_, _) => { if (SelectedDevice() is { } d) await ReadSnmpAsync(d); });
         m.Items.Add("Get model with Windows login…", null, async (_, _) => { if (SelectedDevice() is { } d) await GetWindowsModelAsync(d, askLogin: true); });
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add("Copy IP", null, (_, _) => { if (SelectedDevice()?.Ip is { } ip) Clipboard.SetText(ip.ToString()); });
@@ -781,6 +795,8 @@ public sealed class MainForm : Form
             SelectIp("10.0.0.10");
             await Task.Delay(1200);
             Shot(Path.Combine(dir, "light-servers.png"));
+            // 1.1.21: printers' toner / ink and switch ports (SNMP)
+            var snmp = await SnmpShotsAsync(dir);
             _nav.Select("all");
             Core.Export.Exporter.Save(Path.Combine(dir, "report.pdf"), _rows.Values.Select(r => r.Tag).OfType<Device>().ToList(), ExportTitle(), WatchExportText);
             SelectIp("10.0.0.45");
@@ -788,6 +804,17 @@ public sealed class MainForm : Form
             _chkDark.Checked = true; // switches to dark (not saved in demo mode)
             await Task.Delay(1500);
             Shot(Path.Combine(dir, "dark.png"));
+            _nav.Select("network");
+            SelectIp("10.0.0.2");
+            await Task.Delay(1200);
+            Shot(Path.Combine(dir, "dark-switch.png"));
+            _nav.Select("printer");
+            SelectIp("10.0.0.201");
+            _grid.FirstDisplayedScrollingColumnIndex = _grid.Columns["Name"]!.Index;
+            await Task.Delay(1200);
+            Shot(Path.Combine(dir, "dark-printers.png"));
+            _nav.Select("all");
+            SelectIp("10.0.0.45");
             _nav.Select("pc");
             _tabs.SelectedIndex = 2;
             await Task.Delay(1000);
@@ -818,7 +845,7 @@ public sealed class MainForm : Form
             var reveal = $"reveal: {rightAfter} rows right after Scan, {atPause} at 0.25 s, {filling} at 0.85 s, {_rows.Count} at 3.25 s, still revealing: {_revealing}, timer {_uiTimer.Interval} ms";
             var serial = _engine.Store.Find("10.0.0.43") is { } back ? back.Info.GetValueOrDefault("Serial number") : null;
             File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}\r\n" +
-                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n{reveal}\r\n{string.Join("\r\n", header)}\r\n" +
+                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n{reveal}\r\n{string.Join("\r\n", header)}\r\n{snmp}\r\n" +
                 string.Join("\r\n", rc));
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
@@ -934,6 +961,53 @@ public sealed class MainForm : Form
         Shot(path, d.Form);
         d.Form.Close();
         await Task.Delay(300);
+    }
+
+    /// <summary>Screenshots of the printers (toner bars), the switch (port squares), its ports window and the SNMP box; returns a self-check line.</summary>
+    private async Task<string> SnmpShotsAsync(string dir)
+    {
+        var notes = new List<string>();
+        _nav.Select("printer");
+        SelectIp("10.0.0.201");
+        _grid.FirstDisplayedScrollingColumnIndex = _grid.Columns["Name"]!.Index;
+        await Task.Delay(1200);
+        Shot(Path.Combine(dir, "light-printer.png"));
+        var ink = _grid.Columns["Ink"]!;
+        var port = _grid.Columns["SwPort"]!;
+        notes.Add($"snmp: ink column shown {ink.Visible} ({ink.Width}px), switch port column shown {port.Visible}; " +
+                  $"10.0.0.45 port: {(_rows.TryGetValue("10.0.0.45", out var r45) ? r45.Cells["SwPort"].Value : "?")}; 10.0.0.88 port: {(_rows.TryGetValue("10.0.0.88", out var r88) ? r88.Cells["SwPort"].Value : "?")}");
+        var tables = _devicePanel.Controls.Cast<Control>().SelectMany(c => c.Controls.Cast<Control>()).OfType<InfoTable>().ToList();
+        notes.Add($"printer panel: {tables.Sum(t => t.Rows.Count)} supply rows, panel width {_devicePanel.ClientSize.Width}px");
+        _nav.Select("network");
+        SelectIp("10.0.0.2");
+        await Task.Delay(1200);
+        Shot(Path.Combine(dir, "light-switch.png"));
+        var grid = _devicePanel.Controls.Cast<Control>().SelectMany(c => c.Controls.Cast<Control>()).OfType<PortGrid>().FirstOrDefault();
+        notes.Add(grid == null ? "switch panel: NO PORT SQUARES" : $"switch panel: {grid.Ports.Count} port squares in {grid.Width}x{grid.Height}px (panel {_devicePanel.ClientSize.Width}px)");
+        _devicePanel.AutoScrollPosition = new Point(0, S(260));
+        await Task.Delay(500);
+        Shot(Path.Combine(dir, "light-switch-scrolled.png"));
+        if (_engine.Store.Find("10.0.0.2") is { } sw)
+        {
+            using var f = new SwitchPortsForm(sw, _engine.Store.All, _ => { });
+            f.StartPosition = FormStartPosition.Manual;
+            f.Location = new Point(Left + 160, Top + 80);
+            f.Show(this);
+            await Task.Delay(900);
+            Shot(Path.Combine(dir, "light-switch-ports.png"), f);
+            notes.Add($"ports window {f.ClientSize.Width}x{f.ClientSize.Height}px");
+            f.Close();
+            await Task.Delay(300);
+        }
+        // a router that did not answer SNMP: the box for another community
+        SelectIp("10.0.0.15");
+        await Task.Delay(1000);
+        Shot(Path.Combine(dir, "light-snmp-community.png"));
+        _nav.Select("all");
+        SelectIp("10.0.0.45");
+        await Task.Delay(900);
+        Shot(Path.Combine(dir, "light-plugged-into.png"));
+        return string.Join("\r\n", notes);
     }
 
     /// <summary>The "Get models" dialog, shown without waiting for it, pictured, then closed.</summary>
@@ -1326,6 +1400,12 @@ public sealed class MainForm : Form
         _grid.Refresh();
     }
 
+    // SNMP: printers' toner and switches' ports (1.1.21)
+    private bool _showInk, _showPorts, _haveSwitches;
+    private volatile bool _portMapRunning;
+    private DateTime _portMapAt;
+    private readonly HashSet<Device> _snmpBusy = new();
+
     /// <summary>After "Scan" emptied the list: new rows come in a few at a time, top to bottom, for about 2 s.</summary>
     private bool _revealing;
     private DateTime _revealFrom;
@@ -1341,6 +1421,15 @@ public sealed class MainForm : Form
 
     private void FlushUi()
     {
+        // which switch port each device is on: worked out again every few seconds while devices come and go
+        if (_haveSwitches && !_portMapRunning && DateTime.Now - _portMapAt > TimeSpan.FromSeconds(3))
+        {
+            _portMapAt = DateTime.Now;
+            _portMapRunning = true;
+            Task.Run(() => { try { PortMap.Apply(_engine.Store); } catch { } finally { _portMapRunning = false; } });
+        }
+        if (_showInk && !_grid.Columns["Ink"]!.Visible) _grid.Columns["Ink"]!.Visible = true;
+        if (_showPorts && !_grid.Columns["SwPort"]!.Visible) _grid.Columns["SwPort"]!.Visible = true;
         if (_cleared)
         {
             _cleared = false;
@@ -1543,6 +1632,14 @@ public sealed class MainForm : Form
             row.Cells["Ports"].Style.Font = risky.Count > 0 ? Theme.Bold : null;
             row.Cells["Ports"].ToolTipText = string.Join("\n", risky.Select(f => $"{f.Port} {f.Service}: {f.Advice}"));
             row.Cells["Watch"].Value = WatchText(d.Ip?.ToString());
+            var pr = d.Printer;
+            row.Cells["Ink"].Value = pr == null ? "" : string.Join(" · ", Ink.Shown(pr).Select(x => x.Text));
+            row.Cells["Ink"].ToolTipText = pr == null ? "" : string.Join("\n", pr.Supplies.Select(x => x.Text + (x.Detail != null ? $"  ({x.Detail})" : ""))) +
+                (pr.Pages is { } pages ? $"\n{pages:N0} pages printed" : "") + (pr.Status != null ? $"\nStatus: {pr.Status}" : "");
+            row.Cells["SwPort"].Value = d.Info.GetValueOrDefault(PortMap.PortKey) ?? "";
+            if (pr is { Supplies.Count: > 0 }) _showInk = true;
+            if (d.Switch != null) _haveSwitches = true;
+            if (d.Info.ContainsKey(PortMap.PortKey)) _showPorts = true;
             row.Cells["Via"].Value = string.Join(", ", d.Sources);
             row.Cells["Seen"].Value = d.LastSeen.ToString("HH:mm:ss");
             var otherNet = d.Ip != null && !d.Reachable;
@@ -1649,7 +1746,8 @@ public sealed class MainForm : Form
         // Only rebuild when something visible changed (devices update on every packet).
         string sig;
         lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, d.Ip, d.BehindNvr, d.Routed, d.Model, d.ModelSource, string.Join(",", d.OpenPorts),
-            string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, string.Join(",", d.Info.Values), d.Services.Count, d.Sources.Count, d.TypeOverride);
+            string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, string.Join(",", d.Info.Values), d.Services.Count, d.Sources.Count, d.TypeOverride,
+            d.Printer?.ReadAt, d.Switch?.ReadAt, d.SnmpTriedAt, _snmpBusy.Contains(d));
         sig += "|" + WatchText(d.Ip?.ToString()) + "|" + _settings.WatchSeconds;
         if (sig == _panelSig) return;
         _panelSig = sig;
@@ -1687,8 +1785,13 @@ public sealed class MainForm : Form
         List<(int Port, string Info)> ports; DateTime? checkedAt; string? behindNvr, nvrChannel, nvrCount; bool nvrLike;
         string? model, modelSrc, serial, windows, winStatus; bool win, kerberos; var hw = new List<InfoTable.Row>();
         (string Label, DeviceAction Action)? primary;
+        PrinterState? printer; SwitchState? sw; string? swPort, arpMac; DateTime? snmpTried; bool snmpAnswered, snmpKind;
         lock (d)
         {
+            printer = d.Printer; sw = d.Switch; swPort = d.Info.GetValueOrDefault(PortMap.PortKey); arpMac = d.Info.GetValueOrDefault(PortMap.ArpMacKey);
+            snmpTried = d.SnmpTriedAt; snmpAnswered = d.Sources.Contains("SNMP");
+            snmpKind = !d.IsSelf && d.Ip != null && d.BehindNvr == null &&
+                       d.EffectiveType is DeviceTypes.Printer or DeviceTypes.Switch or DeviceTypes.Router or DeviceTypes.AccessPoint;
             behindNvr = d.BehindNvr;
             nvrChannel = d.Info.GetValueOrDefault("NVR channel");
             nvrCount = d.Info.GetValueOrDefault("NVR cameras");
@@ -1756,6 +1859,11 @@ public sealed class MainForm : Form
             if (mb.Controls.Count > 0) flow.Controls.Add(mb);
         }
 
+        // printer: toner / ink levels; switch: its ports (SNMP)
+        if (printer != null) RenderPrinter(flow, d, printer, W, Text, Buttons);
+        if (sw is { IsBridge: true }) RenderSwitch(flow, d, sw, W, Text, Buttons);
+        if (snmpKind && printer == null && sw is not { IsBridge: true }) RenderSnmpAsk(flow, d, type, snmpTried, snmpAnswered, W, Text, Buttons);
+
         // reachability + open
         if (ip == null)
             flow.Controls.Add(Text("IP address not known yet: this device was only heard by its MAC address (LLDP / DHCP). Press Scan or wait a little; as soon as it has an IP, the buttons to open it appear here.",
@@ -1816,6 +1924,25 @@ public sealed class MainForm : Form
                 reach.Controls.Add(go);
             }
             if (reach.Controls.Count > 0) flow.Controls.Add(reach);
+        }
+
+        // which switch port it is plugged into
+        if (swPort != null)
+        {
+            flow.Controls.Add(SectionLabel("Plugged into"));
+            flow.Controls.Add(Text("🔌  " + swPort, Theme.Bold, P.Text));
+            if (Regex.Match(swPort, @"\((\d+) devices\)$") is { Success: true } many)
+                flow.Controls.Add(Text($"{many.Groups[1].Value} devices are learned on this port: another switch or a Wi-Fi access point is plugged in there, and this device is behind it.", Theme.Small, P.Muted, 3));
+            if (arpMac != null) flow.Controls.Add(Text($"MAC {arpMac}, from the router's ARP table.", Theme.Small, P.Muted, 3));
+            var spot = PortMap.Locate(d.Mac.Length > 0 ? d.Mac : arpMac ?? "", PortMap.Switches(_engine.Store.All), d);
+            if (spot != null)
+            {
+                var pb = Buttons();
+                var show = MakeButton("Show the switch");
+                show.Click += (_, _) => { if (spot.Switch.Ip is { } sip) SelectIp(sip.ToString()); };
+                pb.Controls.Add(show);
+                flow.Controls.Add(pb);
+            }
         }
 
         // watch (ping monitor)
@@ -1934,6 +2061,146 @@ public sealed class MainForm : Form
 
         _devicePanel.Controls.Add(flow);
         _devicePanel.ResumeLayout();
+    }
+
+    // ───────────────────────────── SNMP: printers and switches ─────────────────────────────
+
+    /// <summary>Toner / ink bars (in each toner's color), pages printed, the printer's status and warnings.</summary>
+    private void RenderPrinter(FlowLayoutPanel flow, Device d, PrinterState pr, int W, Func<string, Font, Color, int, int, Label> text, Func<FlowLayoutPanel> buttons)
+    {
+        var P = Theme.P;
+        flow.Controls.Add(SectionLabel("Ink / toner"));
+        if (pr.Supplies.Count > 0)
+        {
+            var table = new InfoTable { Margin = new Padding(0, 0, 0, 0), KeyWidth = 120 };
+            foreach (var x in pr.Supplies)
+            {
+                var level = Ink.Level(x) + (x.Low ? (x.FillsUp ? "  ·  replace it" : "  ·  low") : "");
+                double? bar = x.Percent is { } pct ? pct / 100.0 : null;
+                table.Rows.Add(new InfoTable.Row(x.Name, level, x.Detail, false, bar, x.FillsUp ? (x.Low ? P.Warn : P.Muted) : Ink.For(x.Color), x.Low));
+            }
+            table.Fit(W);
+            flow.Controls.Add(table);
+        }
+        else flow.Controls.Add(text("The printer answers, but does not tell its toner / ink levels.", Theme.Base, P.Muted, 0, 0));
+        var facts = string.Join("  ·  ", new[] { pr.Pages is { } pages ? $"{pages:N0} pages printed" : null, pr.Status }.Where(x => x != null));
+        if (facts.Length > 0) flow.Controls.Add(text(facts, Theme.Bold, P.Text, 8, 0));
+        foreach (var a in pr.Alerts) flow.Controls.Add(text("⚠  " + a, Theme.Base, P.Warn, 3, 0));
+        flow.Controls.Add(text($"Read over SNMP at {pr.ReadAt:HH:mm}.", Theme.Small, P.Muted, 4, 0));
+        var b = buttons();
+        var again = MakeButton(_snmpBusy.Contains(d) ? "Reading…" : "Read again");
+        again.Enabled = !_snmpBusy.Contains(d);
+        again.Click += async (_, _) => await ReadSnmpAsync(d);
+        b.Controls.Add(again);
+        flow.Controls.Add(b);
+    }
+
+    /// <summary>The switch's ports as squares (green: a device, blue: several), and "Show ports…" for the full list.</summary>
+    private void RenderSwitch(FlowLayoutPanel flow, Device d, SwitchState sw, int W, Func<string, Font, Color, int, int, Label> text, Func<FlowLayoutPanel> buttons)
+    {
+        var P = Theme.P;
+        flow.Controls.Add(SectionLabel("Switch ports"));
+        flow.Controls.Add(text($"{sw.Up} of {sw.Ports.Count} ports up  ·  {sw.MacCount} devices learned", Theme.Bold, P.Text, 0, 6));
+        var byMac = PortPeople.ByMac(_engine.Store.All);
+        var grid = new PortGrid { Margin = new Padding(0, S(2), 0, 0) };
+        foreach (var p in sw.Ports) grid.Ports.Add((p, PortPeople.Tip(p, byMac)));
+        grid.Fit(W);
+        grid.PortClicked += p => ShowSwitchPorts(d);
+        flow.Controls.Add(grid);
+        flow.Controls.Add(text("Green: a device  ·  Blue: several devices (another switch or Wi-Fi AP)  ·  Light green: link up, nothing learned  ·  Gray: nothing plugged in", Theme.Small, P.Muted, 6, 0));
+        flow.Controls.Add(text($"Read over SNMP at {sw.ReadAt:HH:mm}." + (sw.Arp.Count > 0 ? $" Its ARP table has {sw.Arp.Count} addresses." : ""), Theme.Small, P.Muted, 3, 0));
+        var b = buttons();
+        var show = MakeButton("Show ports…", primary: true);
+        show.Click += (_, _) => ShowSwitchPorts(d);
+        b.Controls.Add(show);
+        var again = MakeButton(_snmpBusy.Contains(d) ? "Reading…" : "Read again");
+        again.Enabled = !_snmpBusy.Contains(d);
+        again.Click += async (_, _) => await ReadSnmpAsync(d);
+        b.Controls.Add(again);
+        flow.Controls.Add(b);
+    }
+
+    /// <summary>A printer / switch that did not tell anything over SNMP yet: why, and a box for the SNMP community (saved for every device).</summary>
+    private void RenderSnmpAsk(FlowLayoutPanel flow, Device d, string type, DateTime? tried, bool answered, int W, Func<string, Font, Color, int, int, Label> text, Func<FlowLayoutPanel> buttons)
+    {
+        var P = Theme.P;
+        var what = type == DeviceTypes.Printer ? "toner / ink levels" : type == DeviceTypes.Switch ? "ports (which device is on which port)" : "devices and ports";
+        flow.Controls.Add(SectionLabel(type == DeviceTypes.Printer ? "Ink / toner" : "Ports (SNMP)"));
+        var busy = _snmpBusy.Contains(d);
+        var communities = string.Join(", ", _settings.SnmpCommunityList.Select(c => $"\"{c}\""));
+        flow.Controls.Add(text(busy ? "Reading over SNMP…" :
+            tried == null ? $"Not read yet. NetFinder reads its {what} over SNMP." :
+            answered ? $"It answered over SNMP, but does not share its {what}." :
+            $"No answer over SNMP with the community {communities}. SNMP may be off on the device, or it uses another community (like a password, set on the device's web page).",
+            Theme.Base, tried != null && !answered && !busy ? P.Warn : P.Muted, 0, 6));
+        var row = buttons();
+        var box = new InputBox(150) { Margin = new Padding(0, S(4), S(6), S(4)) };
+        box.Box.Text = _settings.SnmpCommunities;
+        box.Box.PlaceholderText = "public";
+        var read = MakeButton(busy ? "Reading…" : tried == null ? "Read now" : "Save and try again", primary: true);
+        read.Enabled = !busy;
+        new ToolTip().SetToolTip(box.Box, "SNMP read community. Several? Put a comma between them. Saved for all devices (also in ☰ → Settings).");
+        async Task Go()
+        {
+            var c = string.IsNullOrWhiteSpace(box.Box.Text) ? "public" : box.Box.Text.Trim();
+            if (c != _settings.SnmpCommunities) { _settings.SnmpCommunities = c; if (!_demo) _settings.Save(); }
+            await ReadSnmpAsync(d);
+        }
+        read.Click += async (_, _) => await Go();
+        box.Box.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await Go(); } };
+        row.Controls.Add(new Label { Text = "Community:", AutoSize = true, ForeColor = P.Muted, Margin = new Padding(0, S(12), S(6), 0) });
+        row.Controls.Add(box);
+        row.Controls.Add(read);
+        flow.Controls.Add(row);
+    }
+
+    /// <summary>Reads toner levels / switch ports (and model) over SNMP now, for one device.</summary>
+    private async Task ReadSnmpAsync(Device d)
+    {
+        if (!_snmpBusy.Add(d)) return;
+        IPAddress? ip;
+        bool reachable;
+        lock (d) { ip = d.Ip; reachable = d.Reachable; d.Revision++; }
+        try
+        {
+            if (ip == null) return;
+            if (!reachable && MessageBox.Show(this, $"{ip} is on another subnet. Add a temporary IP in its subnet to ask it? (If your router lets this PC reach it, SNMP may work without one: press Cancel to try anyway.)",
+                    AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK && !await MakeReachableAsync(d)) return;
+            _stState.Text = $"Reading {ip} over SNMP…";
+            await Task.Run(() => new SnmpEnricher().EnrichAsync(d, new EnrichContext { Engine = _engine, Settings = _settings }, CancellationToken.None));
+            PrinterState? pr; SwitchState? sw; bool answered;
+            lock (d) { pr = d.Printer; sw = d.Switch; answered = d.Sources.Contains("SNMP"); }
+            _stState.Text = !answered ? $"{ip} did not answer over SNMP (community {_settings.SnmpCommunities})." :
+                pr != null ? $"{ip}: " + (pr.Supplies.Count > 0 ? string.Join(", ", Ink.Shown(pr).Select(x => x.Text)) : "printer, no supply levels") :
+                sw is { IsBridge: true } ? $"{ip}: {sw.Up} of {sw.Ports.Count} ports up, {sw.MacCount} devices learned" : $"{ip} answered over SNMP.";
+        }
+        catch (Exception ex) { _stState.Text = $"SNMP {ip}: {ex.Message}"; }
+        finally
+        {
+            _snmpBusy.Remove(d);
+            _engine.Store.Touch(d, _ => { });
+        }
+    }
+
+    private void ShowSwitchPorts(Device d)
+    {
+        if (d.Switch == null) return;
+        using var f = new SwitchPortsForm(d, _engine.Store.All, _ => { });
+        if (f.ShowDialog(this) == DialogResult.OK && f.Picked is { } p) PickOnPort(p);
+    }
+
+    /// <summary>Picks in the list the device plugged into this port (the first one when there are several).</summary>
+    private void PickOnPort(SwitchPort p)
+    {
+        var byMac = PortPeople.ByMac(_engine.Store.All);
+        foreach (var m in p.Macs)
+            if (byMac.TryGetValue(m, out var l) && l[0].Ip is { } ip)
+            {
+                _nav.Select("all");
+                SelectIp(ip.ToString());
+                return;
+            }
+        _stState.Text = $"Port {p.Name}: the device(s) there are not in the list (MAC {string.Join(", ", p.Macs.Take(3))}).";
     }
 
     /// <summary>CPU, RAM, each disk (with an SSD / HDD chip), each drive (with how full it is), graphics: what Windows told (call inside lock).</summary>

@@ -4,6 +4,11 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.21
+- Printers: toner / ink left for each color, pages printed and the printer's status (read over SNMP), in a new "Ink / toner" column and in the device panel.
+- Switches: which port each device is plugged into (new "Switch port" column), and the switch's ports as squares: up, down, and who is on each. "Show ports…" lists them all.
+- SNMP community: "public" is tried first; type another one in the device panel or in Settings.
+
 ## 1.1.20
 - Repeat and Deep scan moved from the ☰ menu to the top bar, next to Scan: tick what you need before you scan.
 - The filter box moved to the top of the side menu.

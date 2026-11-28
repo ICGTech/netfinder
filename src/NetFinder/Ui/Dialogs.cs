@@ -231,7 +231,7 @@ internal sealed class SettingsForm : Form
         grid.Controls.Add(_updateSource, 1, 8);
         grid.Controls.Add(_checkUpdates, 1, 9);
         var pluginInfo = $"Plugins loaded: {plugins.Analyzers.Count} analyzers, {plugins.Scanners.Count} scanners, {plugins.Classifiers.Count} classifiers, {plugins.ActionProviders.Count} action providers";
-        grid.Controls.Add(new Label { Text = "SNMP communities (to read models)", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 10);
+        grid.Controls.Add(new Label { Text = "SNMP communities (models, ink levels, switch ports; comma between several)", AutoSize = true, MaximumSize = new Size(200, 0), Anchor = AnchorStyles.Left }, 0, 10);
         grid.Controls.Add(_snmp, 1, 10);
         grid.Controls.Add(new Label { Text = pluginInfo, AutoSize = true, ForeColor = Theme.Muted }, 1, 11);
 

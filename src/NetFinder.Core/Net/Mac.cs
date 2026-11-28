@@ -16,5 +16,9 @@ public static class Mac
     public static bool IsGroup(ReadOnlySpan<byte> b) => (b[0] & 1) == 1;
 
     /// <summary>Locally administered (randomized / virtual) MAC.</summary>
+    /// <summary>"AA:BB:…" of one device: not multicast / broadcast, not all zeros.</summary>
+    public static bool IsUnicast(string mac) =>
+        mac.Length == 17 && (Convert.ToByte(mac[..2], 16) & 1) == 0 && mac != "00:00:00:00:00:00";
+
     public static bool IsLocallyAdministered(string mac) => (Convert.ToByte(mac[..2], 16) & 2) == 2;
 }

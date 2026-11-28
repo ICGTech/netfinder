@@ -82,6 +82,15 @@ public sealed class Device
     public Dictionary<int, string> PortInfo { get; } = new();
     public DateTime? PortsCheckedAt { get; set; }
 
+    /// <summary>Toner / ink levels, pages and status of a printer, read over SNMP (null until read).</summary>
+    public PrinterState? Printer { get; set; }
+
+    /// <summary>Ports, learned MAC addresses and ARP table of a switch or router, read over SNMP (null until read).</summary>
+    public SwitchState? Switch { get; set; }
+
+    /// <summary>When SNMP was last tried on it (null: never). It answered when <see cref="Sources"/> has "SNMP".</summary>
+    public DateTime? SnmpTriedAt { get; set; }
+
     /// <summary>mDNS / DNS-SD service types announced by the device (e.g. _http._tcp).</summary>
     public SortedSet<string> Services { get; } = new(StringComparer.OrdinalIgnoreCase);
 

@@ -44,11 +44,11 @@ public static class Exporter
     {
         "Type", "IP address", "Name", "Model", "Vendor", "Manufacturer", "MAC", "Network", "Subnet", "Open ports", "Serial number",
         "NVR / channel", "Camera status (NVR)", "Windows", "CPU", "RAM", "Disk", "Drives", "Graphics", "Logged-in user",
-        "Found via", "All IPs", "First seen", "Last seen", "Risky ports", "Watch status",
+        "Found via", "All IPs", "First seen", "Last seen", "Risky ports", "Watch status", "Ink / toner", "Pages printed", "Switch port",
     };
 
     /// <summary>Columns left out of a file when no device has a value in them.</summary>
-    private static readonly HashSet<string> Optional = new() { "Risky ports", "Watch status" };
+    private static readonly HashSet<string> Optional = new() { "Risky ports", "Watch status", "Ink / toner", "Pages printed", "Switch port" };
 
     /// <summary>One row of text per device, in IP order. Takes each device's lock while reading it.</summary>
     /// <param name="watch">"Up" / "Down since 10:42" for watched devices, "" for the others.</param>
@@ -85,6 +85,9 @@ public static class Exporter
                     d.LastSeen.ToString("yyyy-MM-dd HH:mm:ss"),
                     Net.PortRisk.RiskyText(d.OpenPorts),
                     watch?.Invoke(d) ?? "",
+                    d.Printer?.SuppliesText is { Length: > 0 } ink ? ink : d.Info.GetValueOrDefault("Ink / toner") ?? "",
+                    d.Printer?.Pages?.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) ?? "",
+                    d.Info.GetValueOrDefault(Net.PortMap.PortKey) ?? "",
                 });
         return rows;
     }

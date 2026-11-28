@@ -642,7 +642,10 @@ internal sealed class RoundButton : Control
 /// </summary>
 internal sealed class InfoTable : Control
 {
-    public sealed record Row(string Key, string Value, string? Chip = null, bool ChipGood = false, double? Bar = null);
+    /// <param name="Bar">0–1: draws a bar under the value (how full a drive is, how much toner is left).</param>
+    /// <param name="BarColor">The bar's color (a toner's own color); default blue, orange above 90 %.</param>
+    /// <param name="Warn">Shows the value in red and bold (toner low).</param>
+    public sealed record Row(string Key, string Value, string? Chip = null, bool ChipGood = false, double? Bar = null, Color? BarColor = null, bool Warn = false);
     public string? Title { get; set; }
     public readonly List<Row> Rows = new();
     public int KeyWidth { get; set; } = 112;
@@ -706,7 +709,7 @@ internal sealed class InfoTable : Control
             var (row, r, vh) = _layout[n];
             if (n > 0) g.DrawLine(line, 1, r.Y, Width - 2, r.Y);
             TextRenderer.DrawText(g, row.Key, Theme.Base, new Rectangle(S(16), r.Y + S(10), keyW - S(8), vh), P.Muted, Ui.Wrap);
-            TextRenderer.DrawText(g, row.Value, Theme.Base, new Rectangle(valueX, r.Y + S(10), valueW, vh), P.Text, Ui.Wrap);
+            TextRenderer.DrawText(g, row.Value, row.Warn ? Theme.Bold : Theme.Base, new Rectangle(valueX, r.Y + S(10), valueW, vh), row.Warn ? P.Bad : P.Text, Ui.Wrap);
             var y = r.Y + S(10) + vh;
             if (row.Chip != null)
             {
@@ -721,7 +724,7 @@ internal sealed class InfoTable : Control
                 var track = new Rectangle(valueX, y + S(6), valueW, S(5));
                 Ui.FillRound(g, track, S(3), P.Bar);
                 var w = (int)Math.Round(track.Width * Math.Clamp(used, 0, 1));
-                if (w > 2) Ui.FillRound(g, new Rectangle(track.X, track.Y, w, track.Height), S(3), used > 0.9 ? P.Warn : P.Accent);
+                if (w > 2) Ui.FillRound(g, new Rectangle(track.X, track.Y, w, track.Height), S(3), row.BarColor ?? (used > 0.9 ? P.Warn : P.Accent));
             }
         }
     }
