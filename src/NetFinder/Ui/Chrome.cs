@@ -88,7 +88,8 @@ internal sealed class PaletteColors : ProfessionalColorTable
 }
 
 /// <summary>
-/// Paints the header (rounded outline buttons; Tag "primary" = filled accent, Tag "pill" = the green Listening pill),
+/// Paints the header (rounded outline buttons; Tag "primary" = filled accent, Tag "pill" = the green Listening pill,
+/// Tag "toggle" = an on/off option with a check box, like Repeat and Deep scan),
 /// the menus and the status bar.
 /// </summary>
 internal sealed class ChromeRenderer : ToolStripProfessionalRenderer
@@ -145,6 +146,10 @@ internal sealed class ChromeRenderer : ToolStripProfessionalRenderer
                 fill = on ? (hot ? Theme.Mix(P.GoodSoft, P.Good, 0.12) : P.GoodSoft) : hot ? P.Hover : P.Surface2;
                 border = on ? fill : P.Border;
                 break;
+            case "toggle":
+                fill = on ? (hot ? Theme.Mix(P.AccentSoft, P.Accent, 0.10) : P.AccentSoft) : hot ? P.Hover : P.Surface;
+                border = on ? Theme.Mix(P.Accent, P.Surface, 0.35) : P.Border;
+                break;
             default:
                 fill = hot ? P.Hover : P.Surface;
                 border = P.Border;
@@ -153,6 +158,24 @@ internal sealed class ChromeRenderer : ToolStripProfessionalRenderer
         var r = new Rectangle(0, 0, item.Width - 1, item.Height - 1);
         var radius = kind == "pill" ? r.Height / 2 : item.Owner?.LogicalToDeviceUnits(7) ?? 7;
         Ui.FillRound(g, r, radius, fill, border);
+        if (kind == "toggle") DrawToggleBox(g, item, on);
+    }
+
+    /// <summary>Size of the check box of a "toggle" button (follows the text size).</summary>
+    public static int ToggleBox(ToolStripItem item) => Math.Max(10, item.Font.Height * 3 / 4);
+
+    private static void DrawToggleBox(Graphics g, ToolStripItem item, bool on)
+    {
+        var size = ToggleBox(item);
+        var b = new Rectangle(item.Owner?.LogicalToDeviceUnits(10) ?? 10, (item.Height - size) / 2, size, size);
+        var radius = Math.Max(2, size / 4);
+        if (!on) { Ui.FillRound(g, b, radius, P.Surface, item.Enabled ? P.Muted : P.Border); return; }
+        Ui.FillRound(g, b, radius, item.Enabled ? P.Accent : Theme.Mix(P.Accent, P.Surface, 0.45));
+        var smooth = g.SmoothingMode;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var pen = new Pen(P.AccentText, Math.Max(1.6f, size / 7f)) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
+        g.DrawLines(pen, new[] { new PointF(b.Left + size * 0.24f, b.Top + size * 0.52f), new PointF(b.Left + size * 0.43f, b.Top + size * 0.71f), new PointF(b.Left + size * 0.77f, b.Top + size * 0.31f) });
+        g.SmoothingMode = smooth;
     }
 
     protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
@@ -171,6 +194,7 @@ internal sealed class ChromeRenderer : ToolStripProfessionalRenderer
         else if (e.ToolStrip is ToolStripDropDown) c = P.Text;
         else if (kind == "primary") c = P.AccentText;
         else if (kind == "pill") c = e.Item is ToolStripButton { Checked: true } ? P.Good : P.Muted;
+        else if (kind == "toggle") c = e.Item is ToolStripButton { Checked: true } ? P.AccentSoftText : P.Text;
         else if (kind == "muted") c = P.Muted;
         else if (e.Item is ToolStripStatusLabel { IsLink: true }) c = P.Link;
         else c = P.Text;

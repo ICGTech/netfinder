@@ -4,6 +4,9 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.20
+- Repeat and Deep scan moved from the ☰ menu to the top bar, next to Scan: tick what you need before you scan.
+
 ## 1.1.19
 - Scan empties the list right away, then shows the devices one after another as they answer, with an "answered so far" count.
 

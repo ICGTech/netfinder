@@ -25,8 +25,11 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _btnScan = new("▶  Scan") { Tag = "primary", Font = Theme.HeaderBold, ToolTipText = "Sweep my subnet (or the Range) + probe other subnets + ask devices for their names" };
     private readonly ToolStripButton _btnStop = new("Stop") { Enabled = false, Visible = false, Font = Theme.Header };
     private readonly ToolStripButton _btnListen = new("Listening") { Tag = "pill", CheckOnClick = true, Font = Theme.Bold, ToolTipText = "Passively catch any device that talks on the wire, on any subnet" };
-    private readonly ToolStripMenuItem _chkRepeat = new("Repeat the scan every 2 minutes") { CheckOnClick = true, ToolTipText = "Catches phones that sleep on Wi-Fi" };
-    private readonly ToolStripMenuItem _chkDeep = new("Deep scan 192.168.x.x") { CheckOnClick = true, ToolTipText = "Also probe all 65,536 addresses of 192.168.0.0/16 (~45 s, needs Npcap)" };
+    // scan options, next to Scan (on/off buttons with a check box)
+    private readonly ToolStripButton _chkRepeat = new("Repeat") { Tag = "toggle", CheckOnClick = true, Font = Theme.Header,
+        ToolTipText = "Repeat the scan every 2 minutes: new devices are added and the list is not emptied (catches phones that sleep on Wi-Fi)" };
+    private readonly ToolStripButton _chkDeep = new("Deep scan") { Tag = "toggle", CheckOnClick = true, Font = Theme.Header,
+        ToolTipText = "Deep scan: also look through all 65,536 addresses of 192.168.x.x for devices left on another range (about 45 s more per scan, needs Npcap)" };
     private readonly ToolStripMenuItem _chkDark = new("Dark mode") { CheckOnClick = true };
     private readonly ToolStripDropDownButton _menu = new("☰") { ShowDropDownArrow = false, Font = Theme.HeaderBold, ToolTipText = "Repeat scan, deep scan, dark mode, settings…" };
     private readonly InputBox _rangeBox = new(210);
@@ -238,6 +241,7 @@ public sealed class MainForm : Form
         _btnStop.Click += (_, _) => _scanCts?.Cancel();
         _btnListen.CheckedChanged += (_, _) => ToggleListen(_btnListen.Checked);
         _chkRepeat.CheckedChanged += (_, _) => { if (_chkRepeat.Checked) _repeatTimer.Start(); else _repeatTimer.Stop(); ShowListenText(); };
+        _settings.DeepScan = false; // starts off each time, like Repeat (it makes every scan ~45 s longer)
         _chkDeep.CheckedChanged += (_, _) => _settings.DeepScan = _chkDeep.Checked;
         _chkDark.Checked = Theme.P.Dark;
         _chkDark.CheckedChanged += (_, _) =>
@@ -259,12 +263,17 @@ public sealed class MainForm : Form
             b.Margin = new Padding(S(4), 0, S(4), 0);
         }
         _btnListen.Margin = new Padding(S(10), 0, S(4), 0);
+        foreach (var t in new[] { _chkRepeat, _chkDeep })
+        {
+            t.Padding = new Padding(S(10) + ChromeRenderer.ToggleBox(t) + S(7), S(6), S(12), S(6));
+            t.Margin = new Padding(S(4), 0, S(4), 0);
+        }
         _tools.Items.AddRange(new ToolStripItem[]
         {
             new BrandItem(),
             new ToolStripLabel("Range") { Tag = "muted", Font = Theme.Header, Margin = new Padding(S(6), 0, S(6), 0) },
             _rangeHost,
-            _btnScan, _btnStop, _btnModels, _btnListen,
+            _btnScan, _btnStop, _chkRepeat, _chkDeep, _btnModels, _btnListen,
         });
         _btnModels.Click += async (_, _) => { if (_modelsCts != null) _modelsCts.Cancel(); else await GetModelsForAllAsync(); };
 
@@ -277,7 +286,7 @@ public sealed class MainForm : Form
         var watch = new ToolStripMenuItem("Watch devices…") { ToolTipText = "Ping chosen devices and tell me when one goes down or comes back" };
         watch.Click += (_, _) => PickWatched();
         _menu.DropDown.Renderer = _renderer;
-        _menu.DropDownItems.AddRange(new ToolStripItem[] { watch, new ToolStripSeparator(), _chkRepeat, _chkDeep, new ToolStripSeparator(), _chkDark, new ToolStripSeparator(), clear, settings, about });
+        _menu.DropDownItems.AddRange(new ToolStripItem[] { watch, new ToolStripSeparator(), _chkDark, new ToolStripSeparator(), clear, settings, about });
         foreach (ToolStripItem i in _menu.DropDownItems) { i.Font = Theme.Header; i.Padding = new Padding(0, S(3), 0, S(3)); }
         _menu.Padding = new Padding(S(10), S(6), S(10), S(6));
 
@@ -300,7 +309,7 @@ public sealed class MainForm : Form
 
     private void ShowListenText()
     {
-        _btnListen.Text = (_btnListen.Checked ? "●  Listening" : "○  Not listening") + (_chkRepeat.Checked ? " · repeat every 2 min" : "");
+        _btnListen.Text = _btnListen.Checked ? "●  Listening" : "○  Not listening";
         FitHeader();
     }
 
@@ -714,6 +723,7 @@ public sealed class MainForm : Form
             if (pc != null) { _grid.ClearSelection(); pc.Selected = true; _grid.CurrentCell = pc.Cells["Ip"]; }
             await Task.Delay(1500);
             Shot(Path.Combine(dir, "light.png"));
+            var header = new List<string> { HeaderCheck() };
             _tabs.SelectedIndex = 1;
             await Task.Delay(700);
             Shot(Path.Combine(dir, "light-all-details.png"));
@@ -747,10 +757,13 @@ public sealed class MainForm : Form
             await Task.Delay(1000);
             Shot(Path.Combine(dir, "dark-computers-log.png"));
             _chkRepeat.Checked = true;
+            _chkDeep.Checked = true;
             Native.ForceSize(this, 1100 + border.Width, 720 + border.Height);
             await Task.Delay(1200);
             Shot(Path.Combine(dir, "dark-narrow.png"));
+            header.Add(HeaderCheck() + $" (Repeat {_chkRepeat.Checked}, Deep scan {_chkDeep.Checked}, timer on {_repeatTimer.Enabled})");
             _chkRepeat.Checked = false;
+            _chkDeep.Checked = false;
             // 1.1.17: right-clicks on rows, with the Watch column shown and hidden (it used to fail when hidden)
             var rc = await RightClickCheckAsync(dir);
             rc.Add(await ArpTableCheckAsync());
@@ -769,7 +782,7 @@ public sealed class MainForm : Form
             var reveal = $"reveal: {rightAfter} rows right after Scan, {atPause} at 0.25 s, {filling} at 0.85 s, {_rows.Count} at 3.25 s, still revealing: {_revealing}, timer {_uiTimer.Interval} ms";
             var serial = _engine.Store.Find("10.0.0.43") is { } back ? back.Info.GetValueOrDefault("Serial number") : null;
             File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}\r\n" +
-                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n{reveal}\r\n" +
+                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n{reveal}\r\n{string.Join("\r\n", header)}\r\n" +
                 string.Join("\r\n", rc));
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
@@ -785,6 +798,14 @@ public sealed class MainForm : Form
         if (!row.Visible || row.DataGridView != _grid) return;
         var col = column >= 0 && column < _grid.Columns.Count && _grid.Columns[column].Visible ? _grid.Columns[column] : _grid.Columns["Ip"];
         if (col is { Visible: true } && _grid.CurrentCell != row.Cells[col.Index]) _grid.CurrentCell = row.Cells[col.Index];
+    }
+
+    /// <summary>Screenshot self-check: every header item fits (a ToolStrip without overflow hides what does not fit).</summary>
+    private string HeaderCheck()
+    {
+        var hidden = _tools.Items.Cast<ToolStripItem>().Where(i => i.Available && i.Placement != ToolStripItemPlacement.Main)
+            .Select(i => string.IsNullOrEmpty(i.Text) ? i.GetType().Name : i.Text).ToList();
+        return $"header at {ClientSize.Width}px: {(hidden.Count == 0 ? "all items shown" : "HIDDEN: " + string.Join(", ", hidden))}, range box {_rangeHost.Width}px, filter box {_filterHost.Width}px";
     }
 
     /// <summary>Screenshot self-check on a real Windows: the ARP table read with GetIpNetTable2 must match "arp -a".</summary>
