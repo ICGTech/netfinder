@@ -8,18 +8,11 @@ internal static class Dialogs
 {
     public static string? Input(IWin32Window owner, string title, string prompt, string value)
     {
-        using var f = new Form
-        {
-            Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
-            MinimizeBox = false, MaximizeBox = false, ClientSize = new Size(380, 120), Font = Theme.Base, ShowInTaskbar = false,
-        };
-        var lbl = new Label { Text = prompt, Left = 12, Top = 12, Width = 356 };
-        var tb = new TextBox { Text = value, Left = 12, Top = 36, Width = 356 };
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Left = 212, Top = 78, Width = 75 };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 293, Top = 78, Width = 75 };
-        f.Controls.AddRange(new Control[] { lbl, tb, ok, cancel });
-        f.AcceptButton = ok; f.CancelButton = cancel;
-        return f.ShowDialog(owner) == DialogResult.OK ? tb.Text.Trim() : null;
+        using var d = new AutoDialog(title, 380);
+        d.Text(prompt);
+        var tb = d.Add(new TextBox { Text = value, Width = d.Width }, top: 6);
+        d.Buttons("OK");
+        return d.Show(owner) ? tb.Text.Trim() : null;
     }
 
     /// <summary>Windows login used to read a PC's model over WMI. Kept in memory only, never written to disk.</summary>
@@ -28,28 +21,16 @@ internal static class Dialogs
     /// <summary>Asks for a Windows admin login. Empty user = use the account running this program.</summary>
     public static WindowsLogin? AskWindowsLogin(IWin32Window owner, string target, WindowsLogin? current)
     {
-        using var f = new Form
-        {
-            Text = "Windows login – read PC model", AutoScaleDimensions = new SizeF(96F, 96F), AutoScaleMode = AutoScaleMode.Dpi, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
-            MinimizeBox = false, MaximizeBox = false, ClientSize = new Size(460, 232), Font = Theme.Base, ShowInTaskbar = false,
-        };
-        var info = new Label
-        {
-            Text = $"To read the model, serial number, CPU, RAM, disks and graphics card of {target}, log in with an account that is administrator on it " +
-                   "(e.g. DOMAIN\\admin or PCNAME\\Administrator). Leave empty to use your own Windows login.",
-            Left = 12, Top = 10, Width = 436, Height = 52,
-        };
-        var lu = new Label { Text = "User:", Left = 12, Top = 72, Width = 80 };
-        var tu = new TextBox { Left = 100, Top = 69, Width = 348, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\user  or  user@domain.local" };
-        var lp = new Label { Text = "Password:", Left = 12, Top = 104, Width = 80 };
-        var tp = new TextBox { Left = 100, Top = 101, Width = 348, UseSystemPasswordChar = true, Text = current?.Password ?? "" };
-        var note = new Label { Text = "Kept only while NetFinder is open. Never saved to disk.", Left = 100, Top = 132, Width = 348, ForeColor = Theme.Muted, Font = Theme.Small };
-        var ok = new Button { Text = "Read model", DialogResult = DialogResult.OK, Left = 262, Top = 186, Width = 100 };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 368, Top = 186, Width = 80 };
-        f.Controls.AddRange(new Control[] { info, lu, tu, lp, tp, note, ok, cancel });
-        f.AcceptButton = ok; f.CancelButton = cancel;
-        f.Shown += (_, _) => (tu.Text.Length == 0 ? tu : tp).Focus();
-        return f.ShowDialog(owner) == DialogResult.OK ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null;
+        using var d = new AutoDialog("Windows login – read PC model", 460);
+        d.Text($"To read the model, serial number, CPU, RAM, disks and graphics card of {target}, log in with an account that is administrator on it " +
+               "(e.g. DOMAIN\\admin or PCNAME\\Administrator).");
+        var tu = new TextBox { Text = current?.User ?? "", PlaceholderText = "DOMAIN\\user  or  user@domain.local" };
+        var tp = new TextBox { UseSystemPasswordChar = true, Text = current?.Password ?? "" };
+        d.Fields(12, 0, ("User:", tu), ("Password:", tp));
+        d.Text("Leave the user empty to use your own Windows login. Kept only while NetFinder is open; never saved to disk.", top: 4, muted: true, small: true);
+        d.Buttons("Read model");
+        d.Form.Shown += (_, _) => (tu.Text.Length == 0 ? tu : tp).Focus();
+        return d.Show(owner) ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null;
     }
 
     public sealed record ModelsOptions(bool OtherSubnets, WindowsLogin? Login, bool StartRemoteRegistry);
@@ -57,43 +38,35 @@ internal static class Dialogs
     /// <summary>Options for "Get models" on the whole list.</summary>
     public static ModelsOptions? AskModelsOptions(IWin32Window owner, int devices, int otherSubnetDevices, int windowsPcs, WindowsLogin? current)
     {
-        using var f = new Form
-        {
-            Text = "Get the model of every device", AutoScaleDimensions = new SizeF(96F, 96F), AutoScaleMode = AutoScaleMode.Dpi, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
-            MinimizeBox = false, MaximizeBox = false, ClientSize = new Size(520, 384), Font = Theme.Base, ShowInTaskbar = false,
-        };
-        var head = new Label
-        {
-            Text = $"{devices} devices. Each one is asked for its model without a password (web page, UPnP, SNMP \"public\", ONVIF cameras, IPP printers).",
-            Left = 12, Top = 10, Width = 496, Height = 36,
-        };
-        var other = new CheckBox
-        {
-            Text = $"Include the {otherSubnetDevices} devices on other IP ranges (adds a temporary IP on this PC's network card for each range; removed when NetFinder closes)",
-            Left = 12, Top = 52, Width = 496, Height = 44, Checked = otherSubnetDevices > 0, Enabled = otherSubnetDevices > 0,
-        };
-        var winBox = new GroupBox { Text = $"Windows PCs ({windowsPcs} found): admin login for model, serial, CPU, RAM, disk, graphics", Left = 12, Top = 102, Width = 496, Height = 204 };
-        var useWin = new CheckBox { Text = "Use a Windows login", Left = 12, Top = 24, Width = 300, Checked = current != null || windowsPcs > 0 };
-        var lu = new Label { Text = "User:", Left = 12, Top = 56, Width = 80 };
-        var tu = new TextBox { Left = 96, Top = 53, Width = 380, Text = current?.User ?? "", PlaceholderText = "DOMAIN\\admin  or  admin@domain.local   (empty = your own login)" };
-        var lp = new Label { Text = "Password:", Left = 12, Top = 88, Width = 80 };
-        var tp = new TextBox { Left = 96, Top = 85, Width = 380, UseSystemPasswordChar = true, Text = current?.Password ?? "" };
-        var note = new Label { Text = "Kept only while NetFinder is open. Never saved to disk.", Left = 96, Top = 114, Width = 380, ForeColor = Theme.Muted, Font = Theme.Small };
-        var reg = new CheckBox
-        {
-            Text = "If WMI is blocked by the PC's firewall: read it over file sharing (port 445), starting the Remote Registry service for a moment when it is off (put back as it was right after)",
-            Left = 12, Top = 136, Width = 470, Height = 58, Checked = true,
-        };
-        winBox.Controls.AddRange(new Control[] { useWin, lu, tu, lp, tp, note, reg });
+        using var d = ModelsDialog(devices, otherSubnetDevices, windowsPcs, current, out var result);
+        return d.Show(owner) ? result() : null;
+    }
+
+    /// <summary>The "Get models" dialog (also shown by the screenshot mode). Every text wraps, so nothing is cut at any Windows scaling.</summary>
+    internal static AutoDialog ModelsDialog(int devices, int otherSubnetDevices, int windowsPcs, WindowsLogin? current, out Func<ModelsOptions> result)
+    {
+        var d = new AutoDialog("Get the model of every device", 500);
+        d.Text($"{devices} devices. Each one is asked for its model without a password (web page, UPnP, SNMP \"public\", ONVIF cameras, IPP printers).");
+        var other = d.Check(otherSubnetDevices == 1 ? "Include the 1 device on another IP range" : $"Include the {otherSubnetDevices} devices on other IP ranges",
+            otherSubnetDevices > 0, top: 12);
+        other.Enabled = otherSubnetDevices > 0;
+        d.Text("Adds a temporary IP on this PC's network card for each range; it is removed when NetFinder closes.", left: 18, muted: true);
+
+        d.Text($"Windows PCs ({windowsPcs} found)", top: 18, bold: true);
+        d.Text("An admin login reads their model, serial number, CPU, RAM, disks and graphics card.", top: 2, muted: true);
+        var useWin = d.Check("Use a Windows login", current != null || windowsPcs > 0, top: 8);
+        var tu = new TextBox { Text = current?.User ?? "", PlaceholderText = "DOMAIN\\admin  or  admin@domain.local" };
+        var tp = new TextBox { UseSystemPasswordChar = true, Text = current?.Password ?? "" };
+        d.Fields(4, 18, ("User:", tu), ("Password:", tp));
+        d.Text("Empty user = your own Windows login. Kept only while NetFinder is open; never saved to disk.", top: 2, left: 18, muted: true, small: true);
+        var reg = d.Check("If the firewall blocks WMI, read it over file sharing (port 445)", true, top: 10, left: 18);
+        d.Text("Starts the Remote Registry service for a moment when it is off, and puts it back right after.", left: 36, muted: true);
         void Sync() { tu.Enabled = tp.Enabled = reg.Enabled = useWin.Checked; }
         useWin.CheckedChanged += (_, _) => Sync();
         Sync();
-        var ok = new Button { Text = "Start", DialogResult = DialogResult.OK, Left = 322, Top = 338, Width = 100, Font = Theme.Bold };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Left = 428, Top = 338, Width = 80 };
-        f.Controls.AddRange(new Control[] { head, other, winBox, ok, cancel });
-        f.AcceptButton = ok; f.CancelButton = cancel;
-        if (f.ShowDialog(owner) != DialogResult.OK) return null;
-        return new ModelsOptions(other.Checked, useWin.Checked ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null, reg.Checked);
+        d.Buttons("Start");
+        result = () => new ModelsOptions(other.Checked, useWin.Checked ? new WindowsLogin(tu.Text.Trim(), tp.Text) : null, reg.Checked);
+        return d;
     }
 
     /// <summary>Shows the About box. Returns true when the user pressed "Check for updates".</summary>
@@ -228,3 +201,93 @@ internal sealed class SettingsForm : Form
         DialogResult = DialogResult.OK;
     }
 }
+
+/// <summary>
+/// A small dialog that sizes itself to its text: every line wraps at a width that grows with the font, so nothing is cut
+/// at any Windows scaling (125 %, 150 %…) or text size.
+/// </summary>
+internal sealed class AutoDialog : IDisposable
+{
+    public readonly Form Form;
+    private readonly TableLayoutPanel _rows;
+    /// <summary>The width text wraps at, in pixels.</summary>
+    public readonly int Width;
+
+    public AutoDialog(string title, int width)
+    {
+        Form = new Form
+        {
+            Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent, AutoScaleMode = AutoScaleMode.None,
+            MinimizeBox = false, MaximizeBox = false, Font = Theme.Base, ShowInTaskbar = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+        // a line of the font is about 16 px at 100 %: the wrap width follows the real font size, whatever scales it
+        var line = TextRenderer.MeasureText("Wg", Theme.Base).Height;
+        Width = Math.Max(S(width), line * width / 16);
+        var pad = S(16);
+        Form.Padding = new Padding(pad, pad, pad, S(14));
+        _rows = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Location = new Point(pad, pad), Margin = new Padding(0), Padding = new Padding(0) };
+        Form.Controls.Add(_rows);
+    }
+
+    private int S(int v) => Form.LogicalToDeviceUnits(v);
+
+    public T Add<T>(T c, int top = 0, int left = 0) where T : Control
+    {
+        c.Margin = new Padding(S(left), S(top), 0, 0);
+        _rows.Controls.Add(c);
+        return c;
+    }
+
+    public Label Text(string text, int top = 0, int left = 0, bool muted = false, bool bold = false, bool small = false) =>
+        Add(new Label
+        {
+            Text = text, AutoSize = true, MaximumSize = new Size(Width - S(left), 0), UseMnemonic = false,
+            ForeColor = muted ? Theme.Muted : SystemColors.ControlText, Font = bold ? Theme.Bold : small ? Theme.Small : Theme.Base,
+        }, top, left);
+
+    public CheckBox Check(string text, bool on, int top = 0, int left = 0) =>
+        Add(new CheckBox { Text = text, AutoSize = true, Checked = on, UseMnemonic = false }, top, left);
+
+    /// <summary>"User:" [box] rows; the boxes fill the rest of the width.</summary>
+    public TableLayoutPanel Fields(int top, int left, params (string Label, Control Box)[] rows)
+    {
+        var labelW = rows.Max(r => TextRenderer.MeasureText(r.Label, Theme.Base).Width) + S(10);
+        var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(0) };
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, labelW));
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        foreach (var (label, box) in rows)
+        {
+            t.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, S(4), 0, S(4)) });
+            box.Width = Width - S(left) - labelW;
+            box.Margin = new Padding(0, S(4), 0, S(4));
+            t.Controls.Add(box);
+        }
+        return Add(t, top, left);
+    }
+
+    public (Button Ok, Button Cancel) Buttons(string okText)
+    {
+        var row = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.RightToLeft, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Anchor = AnchorStyles.Right,
+        };
+        Button B(string text, DialogResult r) => new()
+        {
+            Text = text, DialogResult = r, AutoSize = true, MinimumSize = new Size(S(90), S(30)), Padding = new Padding(S(8), 0, S(8), 0), Margin = new Padding(S(8), 0, 0, 0),
+        };
+        var cancel = B("Cancel", DialogResult.Cancel);
+        var ok = B(okText, DialogResult.OK);
+        ok.Font = Theme.Bold;
+        row.Controls.Add(cancel);
+        row.Controls.Add(ok);
+        Add(row, top: 20);
+        row.Margin = new Padding(0, S(20), 0, 0);
+        Form.AcceptButton = ok;
+        Form.CancelButton = cancel;
+        return (ok, cancel);
+    }
+
+    public bool Show(IWin32Window owner) => Form.ShowDialog(owner) == DialogResult.OK;
+    public void Dispose() => Form.Dispose();
+}
+

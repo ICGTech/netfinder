@@ -21,14 +21,17 @@ jobs:
       - name: Screenshots
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force shots | Out-Null
           $env:NETFINDER_DEMO = "1"
-          $env:NETFINDER_SCREENSHOT = "$PWD\shots"
-          $p = Start-Process dist\NetFinder.exe -PassThru
-          if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Host "timed out" }
-          Get-ChildItem shots
-          if (Test-Path shots\error.txt) { Get-Content shots\error.txt }
-          if (Test-Path shots\info.txt) { Get-Content shots\info.txt }
+          # normal text, then every font 1.5x bigger (checks that no text gets cut)
+          foreach ($run in @(@{ dir = "shots"; scale = "" }, @{ dir = "shots\big-text"; scale = "1.5" })) {
+            New-Item -ItemType Directory -Force $run.dir | Out-Null
+            $env:NETFINDER_SCREENSHOT = Join-Path $PWD $run.dir
+            $env:NETFINDER_TEXT_SCALE = $run.scale
+            $p = Start-Process dist\NetFinder.exe -PassThru
+            if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Host "timed out" }
+            Get-ChildItem $run.dir
+            if (Test-Path "$($run.dir)\error.txt") { Get-Content "$($run.dir)\error.txt" }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots

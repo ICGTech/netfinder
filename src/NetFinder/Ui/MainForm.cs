@@ -629,6 +629,7 @@ public sealed class MainForm : Form
             await Task.Delay(700);
             Shot(Path.Combine(dir, "light-all-details.png"));
             _tabs.SelectedIndex = 0;
+            await ShotModelsDialogAsync(Path.Combine(dir, "light-get-models-dialog.png"));
             _chkDark.Checked = true; // switches to dark (not saved in demo mode)
             await Task.Delay(1500);
             Shot(Path.Combine(dir, "dark.png"));
@@ -642,21 +643,36 @@ public sealed class MainForm : Form
         Close();
     }
 
-    private void Shot(string path)
+    /// <summary>The "Get models" dialog, shown without waiting for it, pictured, then closed.</summary>
+    private async Task ShotModelsDialogAsync(string path)
     {
-        Refresh();
-        using var full = Native.Capture(this) is { } b && !IsBlack(b) ? b : DrawnBitmap();
-        var origin = PointToScreen(Point.Empty);
-        var client = new Rectangle(origin.X - Left, origin.Y - Top, ClientSize.Width, ClientSize.Height);
+        using var d = Dialogs.ModelsDialog(71, 1, 31, null, out _);
+        d.Form.StartPosition = FormStartPosition.Manual;
+        d.Form.Location = new Point(Left + 260, Top + 140);
+        d.Form.Show(this);
+        await Task.Delay(900);
+        Shot(path, d.Form);
+        d.Form.Close();
+        await Task.Delay(300);
+    }
+
+    private void Shot(string path) => Shot(path, this);
+
+    private static void Shot(string path, Form f)
+    {
+        f.Refresh();
+        using var full = Native.Capture(f) is { } b && !IsBlack(b) ? b : DrawnBitmap(f);
+        var origin = f.PointToScreen(Point.Empty);
+        var client = new Rectangle(origin.X - f.Left, origin.Y - f.Top, f.ClientSize.Width, f.ClientSize.Height);
         client.Intersect(new Rectangle(Point.Empty, full.Size));
         using var crop = full.Clone(client, full.PixelFormat);
         crop.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }
 
-    private Bitmap DrawnBitmap()
+    private static Bitmap DrawnBitmap(Form f)
     {
-        var b = new Bitmap(Width, Height);
-        DrawToBitmap(b, new Rectangle(Point.Empty, Size));
+        var b = new Bitmap(f.Width, f.Height);
+        f.DrawToBitmap(b, new Rectangle(Point.Empty, f.Size));
         return b;
     }
 

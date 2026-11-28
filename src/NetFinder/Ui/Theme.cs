@@ -5,10 +5,14 @@ namespace NetFinder.Ui;
 
 internal static class Theme
 {
-    public static readonly Font Base = new("Segoe UI", 9f);
-    public static readonly Font Bold = new("Segoe UI Semibold", 9f);
-    public static readonly Font Title = new("Segoe UI Semibold", 15f);
-    public static readonly Font Small = new("Segoe UI", 8.25f);
+    /// <summary>Test only: NETFINDER_TEXT_SCALE=1.5 makes every font bigger, to check that no text gets cut.</summary>
+    private static readonly float K =
+        float.TryParse(Environment.GetEnvironmentVariable("NETFINDER_TEXT_SCALE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var k) && k is > 0.5f and < 4f ? k : 1f;
+
+    public static readonly Font Base = new("Segoe UI", 9f * K);
+    public static readonly Font Bold = new("Segoe UI Semibold", 9f * K);
+    public static readonly Font Title = new("Segoe UI Semibold", 15f * K);
+    public static readonly Font Small = new("Segoe UI", 8.25f * K);
 
     public static readonly Color Accent = Color.FromArgb(0, 120, 212);
     public static readonly Color Brand = Color.FromArgb(18, 32, 58);
@@ -41,16 +45,17 @@ internal static class Theme
     public static Color Mix(Color a, Color b, double t) =>
         Color.FromArgb((int)Math.Round(a.R + (b.R - a.R) * t), (int)Math.Round(a.G + (b.G - a.G) * t), (int)Math.Round(a.B + (b.B - a.B) * t));
 
-    public static readonly Font Heading = new("Segoe UI Semibold", 14f);
-    public static readonly Font Section = new("Segoe UI Semibold", 7.75f);
-    public static readonly Font Big = new("Segoe UI Semibold", 12f);
-    public static readonly Font Header = new("Segoe UI", 9.75f);
-    public static readonly Font HeaderBold = new("Segoe UI Semibold", 9.75f);
+    public static readonly Font Heading = new("Segoe UI Semibold", 14f * K);
+    public static readonly Font Section = new("Segoe UI Semibold", 7.75f * K);
+    public static readonly Font Big = new("Segoe UI Semibold", 12f * K);
+    public static readonly Font Header = new("Segoe UI", 9.75f * K);
+    public static readonly Font HeaderBold = new("Segoe UI Semibold", 9.75f * K);
     public static readonly Font Mono = MonoFont(9.75f, FontStyle.Regular);
     public static readonly Font MonoTitle = MonoFont(15f, FontStyle.Bold);
 
     private static Font MonoFont(float size, FontStyle style)
     {
+        size *= K;
         var f = new Font("Cascadia Mono", size, style);
         if (f.Name == "Cascadia Mono") return f;
         f.Dispose();
