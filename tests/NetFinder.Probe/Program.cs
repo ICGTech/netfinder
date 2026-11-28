@@ -70,9 +70,16 @@ if (args.Length >= 2 && args[0] == "export")
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.31"), "Ping", null, d => { d.OfferModel("HP LaserJet Pro M404dn", "IPP", 85); d.Info["Serial number"] = "PHBQB12345"; d.OpenPorts.Add(9100); d.Hostname = "Printer <2nd floor> & \"A\""; });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("192.168.5.11"), "NVR", null, d => { d.BehindNvr = "10.10.20.64"; d.Routed = false; d.Info["NVR channel"] = "10.10.20.64  channel 1"; d.Info["Status on NVR"] = "Online"; d.OfferModel("DS-2CD1043G0-I", "NVR", 90); d.Hostname = "بوابة"; });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.64"), "Ping", null, d => { d.Info["NVR cameras"] = "8"; d.OfferModel("DS-7608NI-K2/8P", "Hikvision API", 90); });
+    e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.2"), "Ping", null, d => { d.OfferModel("Old switch", "SNMP", 80); foreach (var p in new[] { 21, 23, 80 }) d.OpenPorts.Add(p); });
+    for (var n = 100; n < 100 + int.Parse(Environment.GetEnvironmentVariable("NF_MANY") ?? "0"); n++)
+        e.Store.ObserveIp(System.Net.IPAddress.Parse($"10.10.21.{n}"), "Ping", null, d => { d.Hostname = $"pc-{n}"; d.OpenPorts.Add(445); });
     e.Store.ObserveIp(System.Net.IPAddress.Parse("10.10.20.50"), "Ping", null, d => { d.Info["Windows"] = "Windows 11 Pro (10.0.22631)"; d.Info["CPU"] = "Intel(R) Core(TM) i5-11500 @ 2.70GHz"; d.Info["RAM"] = "16 GB"; d.Info["Disk"] = "SAMSUNG MZVLB256HAHQ (NVMe SSD, 256 GB)  +  ST1000DM010 (HDD, 1 TB)"; d.Info["Drives"] = "C: 238 GB (120 GB free)  +  D: 932 GB (610 GB free)"; d.Info["Graphics"] = "Intel(R) UHD Graphics 750 (1 GB)"; d.OfferModel("Dell OptiPlex 7090", "Windows (WMI)", 100); d.Hostname = "ACC-PC1"; });
-    foreach (var ext in new[] { "xlsx", "csv", "html" })
-        NetFinder.Core.Export.Exporter.Save(Path.Combine(args[1], "devices." + ext), e.Store.All, "Network devices – test");
+    // the picture path for Arabic text (the Windows app draws it with GDI+; here a fixed test picture)
+    var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAKAAAAAoCAYAAAB5LPGYAAACyUlEQVR4nO3cT4iPQRzH8fdv/awDapOmLZcpDspwlMOSovUnJcmJUCiliPxZJzlR/hxQanEhEUXJiUKxl025zB4cZI6a025JaP84PPPj6WnDr2czm/28TjPPzM7M4bPf53nq6dd4urh7ApFMOnIfQGY2BVCyapY7Wz58auQ6iMwc5cc+VUDJSgGUrBRAyUoBlKwUQMlKAZSsFEDJSgGUrBRAyUoBlKyaf57yi7HuCzAINID5wFFgAXAkTekB3qT2NeBmDL6rzT2WAWti8Nd/M6cvBn++nXVlemorgMD3GPxaAGPdcuBuDH4F8DhdG26Np/7Ndg8Ugx8Chv4wrQ9QAP8D7QawzAOL6mxurBsGbgCrgAlgTwz+Ywpyl7FuIdBPUWW/A7uAQ8A8Y92zGHxva255zVY/rf8YeAfcAa4C3UAncDwGP1jn/FJfnWfAXuBFzf3nAG9j8Kspgna5Mn4JeJiq6j3gbAz+DPA5Bt/7l+vfj8FfAS4AV2Pw6ymC3F/z7DIF2q2Anca6V8BsYCmwrOb+E6TbN/AQuFgZXwccSO3bwKO/WLP8TzUGPE/tDcASY11rbK6xblYMfqzdQ8vUqfMMeBLYS71nsXGKkLR8q4zPonjhIQVlZJI1fgbOWNdFcXttGY3Bj6d2E9gYg/9qrOsAehS+/Orcgp8DK2vu3wQ2p/YO4GVlfBDYCmCs22+sO5eud6QQAYykN2eAnRRVdTIDwLbU3gScrnl2mQJ1XkLeAyuMdR2lKlPVaax7U+oPxOBPlfpfge3GuhPAMLCv8vfHgFvGukMU1W93uv4aeAJsAQ4DD4x1kSKw1SrachToN9YdBEb5dWuXjBrlz6P/9Sf51TdYmRn0Sb5MG1kDqOonqoCSlQIoWSmAkpUCKFkpgJKVAihZKYCSlQIoWSmAkpUCKFkpgJKVAihZNfQj5ZKTKqBkpQBKVj8A4zDAx40fkn4AAAAASUVORK5CYII=");
+    NetFinder.Core.Export.PdfReport.ComplexText = (text, size, bold) => new NetFinder.Core.Export.PdfReport.Picture(png, 40, 10);
+    string Watch(Device d) => d.Ip?.ToString() switch { "10.10.20.31" => "Down since 10:42", "10.10.20.1" => "Up · 2 ms", _ => "" };
+    foreach (var ext in new[] { "xlsx", "csv", "html", "pdf" })
+        NetFinder.Core.Export.Exporter.Save(Path.Combine(args[1], "devices." + ext), e.Store.All, "Network devices – test", Watch);
     Console.WriteLine("EXPORTED");
     return;
 }
@@ -247,6 +254,57 @@ if (args.Length >= 1 && args[0] == "selftest")
         Check("log mac dash", f.IsMatch("seen 64-00-6a-55-0e-5e"), true);
         Check("log name", f.IsMatch("NetBIOS: MADAPC0165 is in ALMADA"), true);
         Check("log other", f.IsMatch("ARP sweep pass 1 on Ethernet: 65533 addresses"), false);
+    }
+    {
+        // 1.1.15: risky ports
+        string Risk(params int[] p) => string.Join(" | ", NetFinder.Core.Net.PortRisk.Check(p).Select(x => $"{x.Port} {x.Service} {x.Level}"));
+        Check("risk telnet+ftp+web", Risk(80, 23, 21, 443), "21 FTP High | 23 Telnet High");
+        Check("risk http only", Risk(80), "80 HTTP Note");
+        Check("risk rdp smb", Risk(3389, 445, 135), "445 SMB (file sharing) Note | 3389 Remote Desktop Note");
+        Check("risk vnc once", Risk(5800, 5900), "5900 VNC High");
+        Check("risk none", Risk(22, 443, 9100), "");
+        Check("risky text", NetFinder.Core.Net.PortRisk.RiskyText(new[] { 23, 80, 6379, 3389 }), "23 Telnet, 6379 Redis");
+        // old settings files have no PortsVersion: it must read as 0 so the new ports get added once
+        var old = System.Text.Json.JsonSerializer.Deserialize<Settings>("{\"Ports\":[80,443]}")!;
+        Check("old settings PortsVersion", old.PortsVersion, 0);
+        Check("default ports have the risky ones", NetFinder.Core.Net.PortRisk.ExtraPorts.All(p => new Settings().Ports.Contains(p)), true);
+        Check("watch defaults", $"{old.WatchSeconds} {old.WatchSound} {old.Watch.Count}", "60 True 0");
+
+        // 1.1.15: watching devices (fake ping: .2 goes down after the first round, .3 never answers)
+        var downNow = false;
+        var calls = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+        using var w = new NetFinder.Core.Monitoring.Watcher((ip, ct) =>
+        {
+            calls.AddOrUpdate(ip.ToString(), 1, (_, n) => n + 1);
+            var up = ip.ToString() switch { "10.0.0.2" => !downNow, "10.0.0.3" => false, _ => true };
+            return Task.FromResult(new NetFinder.Core.Monitoring.ProbeResult(up, up ? 3 : null, up ? "ping" : ""));
+        }) { RetryDelay = TimeSpan.FromMilliseconds(5) };
+        var events = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        w.Changed += (s, before) => events.Enqueue($"{s.Ip} {before}->{s.Health}");
+        w.SetTargets(new[] { "10.0.0.1", "10.0.0.2", "10.0.0.3", "not an ip" });
+        Check("watch targets", w.Count, 3);
+        await w.CheckAllAsync(CancellationToken.None);
+        Check("watch first round", string.Join(", ", events.OrderBy(x => x)), "10.0.0.1 Unknown->Up, 10.0.0.2 Unknown->Up, 10.0.0.3 Unknown->Down");
+        Check("watch tries a silent device 3 times", calls["10.0.0.3"], 3);
+        Check("watch pings an up device once", calls["10.0.0.1"], 1);
+        events.Clear(); downNow = true;
+        await w.CheckAllAsync(CancellationToken.None);
+        Check("watch goes down", string.Join(", ", events), "10.0.0.2 Up->Down");
+        events.Clear();
+        await w.CheckAllAsync(CancellationToken.None);
+        Check("watch no repeat alert", events.Count, 0);
+        downNow = false;
+        await w.CheckAllAsync(CancellationToken.None);
+        Check("watch comes back", string.Join(", ", events), "10.0.0.2 Down->Up");
+        Check("watch rtt", w.Get("10.0.0.2")?.Ms, 3);
+        // the loop: a device added while running is checked right away (not after the 1-minute interval)
+        w.Start();
+        await Task.Delay(300);
+        w.SetTargets(new[] { "10.0.0.1", "10.0.0.9" });
+        await Task.Delay(400);
+        Check("watch new target checked now", w.Get("10.0.0.9")?.Health, NetFinder.Core.Monitoring.Health.Up);
+        Check("watch removed target", w.Get("10.0.0.3") == null, true);
+        w.Stop();
     }
     Console.WriteLine(fails == 0 ? "ALL OK" : $"{fails} FAILED");
     return;

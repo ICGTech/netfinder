@@ -69,6 +69,84 @@ internal static class Dialogs
         return d;
     }
 
+    /// <summary>A device in the "Watch devices" list. Group is the side-menu group ("server", "printer"…).</summary>
+    public sealed record WatchPick(string Ip, string Mac, string Name, string Type, string Model, string Group, bool On);
+    public sealed record WatchChoice(List<WatchPick> Devices, int Seconds, bool Sound);
+
+    public static readonly (int Seconds, string Text)[] WatchIntervals =
+        { (30, "30 seconds"), (60, "1 minute"), (120, "2 minutes"), (300, "5 minutes"), (600, "10 minutes") };
+
+    public static string EveryText(int seconds) =>
+        WatchIntervals.FirstOrDefault(i => i.Seconds == seconds).Text ?? (seconds % 60 == 0 ? $"{seconds / 60} minutes" : $"{seconds} seconds");
+
+    /// <summary>"Watch devices": tick the devices to ping, how often, and whether to play a sound.</summary>
+    public static WatchChoice? AskWatch(IWin32Window owner, IReadOnlyList<WatchPick> devices, int seconds, bool sound)
+    {
+        using var d = WatchDialog(devices, seconds, sound, out var result);
+        return d.Show(owner) ? result() : null;
+    }
+
+    internal static AutoDialog WatchDialog(IReadOnlyList<WatchPick> devices, int seconds, bool sound, out Func<WatchChoice> result)
+    {
+        var d = new AutoDialog("Watch devices", 600);
+        int S(int v) => d.Form.LogicalToDeviceUnits(v);
+        d.Text("Tick the devices to watch. NetFinder pings each one and tells you as soon as it stops answering, and again when it comes back.");
+        d.Text("One small ping per device each time, so the network hardly notices.", top: 2, muted: true);
+
+        var list = new ListView
+        {
+            View = View.Details, CheckBoxes = true, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, MultiSelect = false,
+            Width = d.Width, Font = Theme.Base, HideSelection = true,
+        };
+        var line = TextRenderer.MeasureText("Wg", Theme.Base).Height;
+        list.Height = line * 3 / 2 * 11 + line * 2;
+        foreach (var (title, part) in new[] { ("Type", 0.22), ("IP address", 0.19), ("Name", 0.27), ("Model", 0.32) })
+            list.Columns.Add(title, (int)((d.Width - SystemInformation.VerticalScrollBarWidth - S(6)) * part));
+        foreach (var p in devices)
+            list.Items.Add(new ListViewItem(new[] { p.Type, p.Ip, p.Name, p.Model }) { Checked = p.On, Tag = p });
+
+        // quick picks: tick every device of a kind
+        var quick = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, MaximumSize = new Size(d.Width, 0), Padding = new Padding(0) };
+        quick.Controls.Add(new Label { Text = "Tick all:", AutoSize = true, Margin = new Padding(0, S(7), S(4), 0) });
+        void Quick(string text, Func<WatchPick, bool> which, bool on)
+        {
+            var b = new Button { Text = text, AutoSize = true, MinimumSize = new Size(0, S(28)), Margin = new Padding(0, S(2), S(6), S(2)), UseMnemonic = false };
+            b.Click += (_, _) =>
+            {
+                list.BeginUpdate();
+                foreach (ListViewItem i in list.Items) if (which((WatchPick)i.Tag!)) i.Checked = on;
+                list.EndUpdate();
+            };
+            quick.Controls.Add(b);
+        }
+        foreach (var (text, group) in new[] { ("Servers", "server"), ("Printers", "printer"), ("Cameras & NVR", "camera"), ("Network", "network"), ("Storage", "storage") })
+            if (devices.Any(p => p.Group == group)) Quick(text, p => p.Group == group, true);
+        Quick("None", _ => true, false);
+        d.Add(quick, top: 12);
+        d.Add(list, top: 6);
+
+        var every = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = S(10) + TextRenderer.MeasureText("10 minutes", Theme.Base).Width + SystemInformation.VerticalScrollBarWidth + S(16) };
+        foreach (var i in WatchIntervals) every.Items.Add(i.Text);
+        every.SelectedIndex = Array.FindIndex(WatchIntervals, i => i.Seconds >= seconds) is var k and >= 0 ? k : WatchIntervals.Length - 1;
+        var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Padding = new Padding(0) };
+        row.Controls.Add(new Label { Text = "Ping each one every", AutoSize = true, Margin = new Padding(0, S(6), S(8), 0) });
+        row.Controls.Add(every);
+        d.Add(row, top: 12);
+        var snd = d.Check("Play a sound when a device goes down or comes back", sound, top: 6);
+        d.Text("Watching goes on while NetFinder is open, also when it is minimized. The list is kept for next time.", top: 6, muted: true, small: true);
+        var (ok, _) = d.Buttons("Watch");
+        void Count()
+        {
+            var n = list.CheckedItems.Count;
+            ok.Text = n == 0 ? (devices.Any(p => p.On) ? "Stop watching" : "Watch") : n == 1 ? "Watch 1 device" : $"Watch {n} devices";
+        }
+        list.ItemChecked += (_, _) => Count();
+        Count();
+        result = () => new WatchChoice(list.Items.Cast<ListViewItem>().Where(i => i.Checked).Select(i => (WatchPick)i.Tag!).ToList(),
+            WatchIntervals[Math.Max(0, every.SelectedIndex)].Seconds, snd.Checked);
+        return d;
+    }
+
     /// <summary>Shows the About box. Returns true when the user pressed "Check for updates".</summary>
     public static bool About(IWin32Window owner)
     {

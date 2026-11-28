@@ -295,6 +295,8 @@ internal sealed class NavList : Control
         public int Count;
         public bool Hidden;
         public bool IsSection;
+        /// <summary>The second line is a warning ("2 down"): drawn in red.</summary>
+        public bool SubBad;
     }
 
     public readonly List<Item> Items = new();
@@ -378,7 +380,7 @@ internal sealed class NavList : Control
             TextRenderer.DrawText(g, count, font, new Rectangle(r.Right - S(12) - cw, textR.Y, cw + 2, textR.Height),
                 sel ? P.AccentSoftText : i.Count == 0 ? Theme.Mix(P.Muted, P.Surface2, 0.35) : P.Muted, Ui.Line);
             if (i.Sub != null)
-                TextRenderer.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), Ui.LineHeight(Theme.Small) + S(2)), sel ? P.AccentSoftText : P.Muted, Ui.Line);
+                TextRenderer.DrawText(g, i.Sub, Theme.Small, new Rectangle(textR.X, textR.Bottom, r.Width - S(24), Ui.LineHeight(Theme.Small) + S(2)), i.SubBad ? P.Bad : sel ? P.AccentSoftText : P.Muted, Ui.Line);
         }
         if (_contentHeight > Height && Height > S(20))
         {
@@ -417,7 +419,7 @@ internal sealed class NavList : Control
 /// <summary>A small rounded card: a colored title and a muted text under it (capture mode in the side menu).</summary>
 internal sealed class InfoCard : Control
 {
-    public enum Kind { Good, Warn, Accent }
+    public enum Kind { Good, Warn, Accent, Bad }
     private string _title = "", _body = "";
     public Kind Tone { get; set; }
     public string Title { get => _title; set { _title = value; FitHeight(); Invalidate(); } }
@@ -439,11 +441,11 @@ internal sealed class InfoCard : Control
         var P = Theme.P;
         var g = e.Graphics;
         g.Clear(Parent?.BackColor ?? P.Surface2);
-        var fill = Tone switch { Kind.Warn => P.WarnSoft, Kind.Accent => P.AccentSoft, _ => P.Dark ? P.Surface : Theme.Mix(P.Surface2, P.Border, 0.45) };
+        var fill = Tone switch { Kind.Warn => P.WarnSoft, Kind.Accent => P.AccentSoft, Kind.Bad => P.BadSoft, _ => P.Dark ? P.Surface : Theme.Mix(P.Surface2, P.Border, 0.45) };
         Ui.FillRound(g, new Rectangle(0, 0, Width - 1, Height - 1), S(8), fill);
         var w = Width - S(28);
         var th = Ui.WrapHeight(_title, Theme.Bold, w);
-        TextRenderer.DrawText(g, _title, Theme.Bold, new Rectangle(S(14), S(12), w, th), Tone switch { Kind.Warn => P.Warn, Kind.Accent => P.AccentSoftText, _ => P.Good }, Ui.Wrap);
+        TextRenderer.DrawText(g, _title, Theme.Bold, new Rectangle(S(14), S(12), w, th), Tone switch { Kind.Warn => P.Warn, Kind.Accent => P.AccentSoftText, Kind.Bad => P.Bad, _ => P.Good }, Ui.Wrap);
         TextRenderer.DrawText(g, _body, Theme.Small, new Rectangle(S(14), S(12) + th + S(3), w, Height), P.Muted, Ui.Wrap);
         if (!Enabled) using (var b = new SolidBrush(Color.FromArgb(110, P.Surface2))) g.FillRectangle(b, ClientRectangle);
     }
@@ -698,6 +700,8 @@ internal sealed class InfoTable : Control
 internal sealed class ChipList : Control
 {
     public readonly List<(string Bold, string Text, string? Tip)> Chips = new();
+    /// <summary>Indexes of chips drawn in red (risky ports).</summary>
+    public readonly HashSet<int> Bad = new();
     private readonly List<(Rectangle R, int Index)> _layout = new();
     private readonly ToolTip _tip = new();
     private int _tipFor = -1;
@@ -733,11 +737,14 @@ internal sealed class ChipList : Control
         foreach (var (r, i) in _layout)
         {
             var c = Chips[i];
-            Ui.FillRound(g, r, r.Height / 2, P.Dark ? P.Surface2 : Theme.Mix(P.Surface2, P.Border, 0.45), P.Dark ? P.Border : null);
+            var bad = Bad.Contains(i);
+            if (bad) Ui.FillRound(g, r, r.Height / 2, P.BadSoft);
+            else Ui.FillRound(g, r, r.Height / 2, P.Dark ? P.Surface2 : Theme.Mix(P.Surface2, P.Border, 0.45), P.Dark ? P.Border : null);
+            var ink = bad ? P.Bad : P.Text;
             var bw = TextRenderer.MeasureText(g, c.Bold, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
-            TextRenderer.DrawText(g, c.Bold, Theme.Bold, new Rectangle(r.X + S(12), r.Y, bw + 2, r.Height), P.Text, Ui.Line);
+            TextRenderer.DrawText(g, c.Bold, Theme.Bold, new Rectangle(r.X + S(12), r.Y, bw + 2, r.Height), ink, Ui.Line);
             if (c.Text.Length > 0)
-                TextRenderer.DrawText(g, c.Text, Theme.Base, new Rectangle(r.X + S(12) + bw + S(5), r.Y, r.Right - (r.X + S(12) + bw + S(5)) - S(10), r.Height), P.Text, Ui.Line);
+                TextRenderer.DrawText(g, c.Text, Theme.Base, new Rectangle(r.X + S(12) + bw + S(5), r.Y, r.Right - (r.X + S(12) + bw + S(5)) - S(10), r.Height), ink, Ui.Line);
         }
     }
 
@@ -808,6 +815,18 @@ internal sealed class DropPicker : Control
 
 internal static class Native
 {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FLASHWINFO { public uint cbSize; public IntPtr hwnd; public uint dwFlags; public uint uCount; public uint dwTimeout; }
+    [DllImport("user32.dll")] private static extern bool FlashWindowEx(ref FLASHWINFO info);
+
+    /// <summary>Flashes the taskbar button until the window is brought to the front.</summary>
+    public static void Flash(Form f)
+    {
+        if (!f.IsHandleCreated) return;
+        var info = new FLASHWINFO { cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(), hwnd = f.Handle, dwFlags = 3 | 12, uCount = 0, dwTimeout = 0 }; // all + until foreground
+        try { FlashWindowEx(ref info); } catch { }
+    }
+
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] private static extern int SetWindowTheme(IntPtr hwnd, string? app, string? idList);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);

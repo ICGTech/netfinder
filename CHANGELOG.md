@@ -4,6 +4,11 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.15
+- Export → PDF report: a ready PDF file of the devices shown, no browser needed.
+- Watch devices (☰ menu, right-click, or "Watched" in the side menu): pick devices and how often; NetFinder pings them and tells you when one goes down or comes back. One small ping each time, so the network hardly notices.
+- Risky open ports (Telnet, FTP, VNC, open databases…) show in red with what to do; "Risky ports" in the side menu lists those devices.
+
 ## 1.1.14
 - The "Get models" and Windows login windows grow to fit their text, so nothing is cut off (also with bigger text or scaling in Windows).
 - Columns, the side menu and the details pane also grow when Windows shows bigger text.

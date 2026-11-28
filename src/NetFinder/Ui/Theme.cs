@@ -27,13 +27,13 @@ internal static class Theme
         Bg: Hex("F5F7FA"), Surface: Hex("FFFFFF"), Surface2: Hex("F8FAFC"), Border: Hex("E3E8EF"), Text: Hex("16202C"), Muted: Hex("5B6675"),
         Accent: Hex("1B64DA"), AccentText: Hex("FFFFFF"), AccentSoft: Hex("E8F0FD"), AccentSoftText: Hex("124AA6"),
         RowSelected: Hex("EEF4FE"), Hover: Hex("F2F5F9"), Good: Hex("146C40"), GoodSoft: Hex("E7F5EE"), Warn: Hex("8A4B00"), WarnSoft: Hex("FDF1E3"),
-        OtherRow: Hex("FFF8EE"), InputBg: Hex("FFFFFF"), Link: Hex("1B64DA"), Bar: Hex("E3E8EF"));
+        OtherRow: Hex("FFF8EE"), InputBg: Hex("FFFFFF"), Link: Hex("1B64DA"), Bar: Hex("E3E8EF"), Bad: Hex("B42318"), BadSoft: Hex("FDECEC"));
 
     public static readonly Palette DarkPalette = new(true,
         Bg: Hex("0E151D"), Surface: Hex("16212C"), Surface2: Hex("131C26"), Border: Hex("243242"), Text: Hex("E6EDF3"), Muted: Hex("9AA7B4"),
         Accent: Hex("4C9AFF"), AccentText: Hex("0B1622"), AccentSoft: Hex("1A2940"), AccentSoftText: Hex("9CC7FF"),
         RowSelected: Hex("1A2940"), Hover: Hex("1B2733"), Good: Hex("8FD3AE"), GoodSoft: Hex("173A2A"), Warn: Hex("F4BF75"), WarnSoft: Hex("3A2A14"),
-        OtherRow: Hex("241F17"), InputBg: Hex("0F1821"), Link: Hex("6CB0FF"), Bar: Hex("243242"));
+        OtherRow: Hex("241F17"), InputBg: Hex("0F1821"), Link: Hex("6CB0FF"), Bar: Hex("243242"), Bad: Hex("FF9C94"), BadSoft: Hex("3D1D1D"));
 
     /// <summary>The palette of the main window now.</summary>
     public static Palette P { get; private set; } = LightPalette;
@@ -206,4 +206,4 @@ internal static class Theme
 /// <summary>The colors of the main window in one theme.</summary>
 internal sealed record Palette(bool Dark, Color Bg, Color Surface, Color Surface2, Color Border, Color Text, Color Muted,
     Color Accent, Color AccentText, Color AccentSoft, Color AccentSoftText, Color RowSelected, Color Hover,
-    Color Good, Color GoodSoft, Color Warn, Color WarnSoft, Color OtherRow, Color InputBg, Color Link, Color Bar);
+    Color Good, Color GoodSoft, Color Warn, Color WarnSoft, Color OtherRow, Color InputBg, Color Link, Color Bar, Color Bad, Color BadSoft);

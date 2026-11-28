@@ -6,6 +6,7 @@ using NetFinder.Core;
 using NetFinder.Core.Classifiers;
 using NetFinder.Core.Actions;
 using NetFinder.Core.Model;
+using NetFinder.Core.Monitoring;
 using NetFinder.Core.Net;
 using NetFinder.Core.Plugins;
 using NetFinder.Core.Update;
@@ -37,6 +38,16 @@ public sealed class MainForm : Form
     private readonly ToolStripButton _btnModels = new("Get models") { Font = Theme.Header, ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
     private readonly ToolStripStatusLabel _stExport = new("Export results…") { IsLink = true, Visible = false, LinkBehavior = LinkBehavior.HoverUnderline, Margin = new Padding(8, 3, 8, 2) };
     private Dialogs.WindowsLogin? _winLogin; // memory only, never saved
+    private readonly ToolStripDropDownButton _export = new("Export") { ShowDropDownArrow = false, Font = Theme.Header, ToolTipText = "Save the list shown as Excel, PDF, CSV or a web page" };
+
+    // watch devices (ping monitor)
+    private readonly Watcher _watcher;
+    private readonly List<WatchItem> _watchList;
+    private readonly ConcurrentQueue<(WatchState State, Health Before)> _watchEvents = new();
+    private volatile bool _watchChecked;
+    private NotifyIcon? _tray;
+    private string? _trayIp;
+    private readonly RoundButton _watchPick = new("Pick devices to watch…", false) { Visible = false };
     private bool _virtualSkipLogged;
     private CancellationTokenSource? _modelsCts;
 
@@ -136,6 +147,11 @@ public sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
 
         _engine = new NetworkEngine(_settings, typeof(MainForm).Assembly);
+        _watchList = _demo ? Core.Demo.DemoNetwork.Watched() : _settings.Watch;
+        _watcher = new Watcher(_demo ? Core.Demo.DemoNetwork.WatchProbe : null, OpenPortsFor);
+        _watcher.Changed += (s, before) => _watchEvents.Enqueue((s, before));
+        _watcher.Checked += () => _watchChecked = true;
+        Core.Export.PdfReport.ComplexText = PdfPicture;
         if (!string.IsNullOrWhiteSpace(_settings.UpdateSource)) UpdateChecker.Source = _settings.UpdateSource;
         _engine.Store.Labels = _demo ? new UserLabels() : UserLabels.Load();
         _reach = new ReachManager(_engine);
@@ -258,14 +274,22 @@ public sealed class MainForm : Form
         settings.Click += (_, _) => { using var f = new SettingsForm(_settings, _engine.Plugins); f.ShowDialog(this); };
         var about = new ToolStripMenuItem("About / check for updates…");
         about.Click += async (_, _) => { if (Dialogs.About(this)) await CheckForUpdatesAsync(manual: true); };
+        var watch = new ToolStripMenuItem("Watch devices…") { ToolTipText = "Ping chosen devices and tell me when one goes down or comes back" };
+        watch.Click += (_, _) => PickWatched();
         _menu.DropDown.Renderer = _renderer;
-        _menu.DropDownItems.AddRange(new ToolStripItem[] { _chkRepeat, _chkDeep, new ToolStripSeparator(), _chkDark, new ToolStripSeparator(), clear, settings, about });
+        _menu.DropDownItems.AddRange(new ToolStripItem[] { watch, new ToolStripSeparator(), _chkRepeat, _chkDeep, new ToolStripSeparator(), _chkDark, new ToolStripSeparator(), clear, settings, about });
         foreach (ToolStripItem i in _menu.DropDownItems) { i.Font = Theme.Header; i.Padding = new Padding(0, S(3), 0, S(3)); }
         _menu.Padding = new Padding(S(10), S(6), S(10), S(6));
 
-        var export = new ToolStripButton("Export") { Font = Theme.Header, Padding = new Padding(S(12), S(6), S(12), S(6)), ToolTipText = "Save the list shown as Excel (.xlsx), CSV or an HTML report (print it to PDF)" };
-        export.Click += (_, _) => Export();
-        foreach (var b in new ToolStripItem[] { _menu, export, _filterHost })
+        _export.Padding = new Padding(S(12), S(6), S(12), S(6));
+        _export.DropDown.Renderer = _renderer;
+        foreach (var (text, ext) in new[] { ("Excel workbook (.xlsx)", ".xlsx"), ("PDF report (.pdf)", ".pdf"), ("CSV – opens in Excel (.csv)", ".csv"), ("Web page (.html)", ".html") })
+        {
+            var item = new ToolStripMenuItem(text) { Font = Theme.Header, Padding = new Padding(0, S(3), 0, S(3)) };
+            item.Click += (_, _) => Export(ext);
+            _export.DropDownItems.Add(item);
+        }
+        foreach (var b in new ToolStripItem[] { _menu, _export, _filterHost })
         {
             b.Alignment = ToolStripItemAlignment.Right;
             b.Margin = new Padding(S(4), 0, S(4), 0);
@@ -337,10 +361,15 @@ public sealed class MainForm : Form
         _nav.Add("net:mine", "My subnet").Sub = "";
         _nav.Add("net:routed", "Behind a router").Hidden = true;
         _nav.Add("net:other", "Other subnets").Sub = "found by listening";
+        _nav.Section("Checks");
+        _nav.Add("watch", "Watched").Sub = "pick devices…";
+        _nav.Add("risky", "Risky ports");
         _nav.SelectedChanged += key =>
         {
-            _title.Text = key == "all" ? "All devices" : _nav.TextOf(key);
+            _title.Text = key switch { "all" => "All devices", "watch" => "Watched devices", "risky" => "Devices with risky ports", _ => _nav.TextOf(key) };
+            _watchPick.Visible = key == "watch";
             ApplyFilter();
+            if (key == "watch" && _watchList.Count == 0) BeginInvoke(PickWatched);
         };
 
         var w = _navHost.Width - 1 - S(24);
@@ -364,6 +393,9 @@ public sealed class MainForm : Form
         _summary.Margin = new Padding(S(10), S(8), 0, 0);
         _titleRow.Controls.Add(_title);
         _titleRow.Controls.Add(_summary);
+        _watchPick.Margin = new Padding(S(14), S(2), 0, 0);
+        _watchPick.Click += (_, _) => PickWatched();
+        _titleRow.Controls.Add(_watchPick);
 
         _grid.Dock = DockStyle.Fill;
         _grid.ReadOnly = true;
@@ -392,6 +424,9 @@ public sealed class MainForm : Form
             return c;
         }
         Col("Type", "Type", 160);
+        var watchCol = Col("Watch", "Watch", 122);
+        watchCol.Visible = false;
+        watchCol.ToolTipText = "Ping result of the watched devices (☰ menu → Watch devices…)";
         Col("Ip", "IP address", 124).DefaultCellStyle.Font = Theme.Mono;
         Col("Name", "Name", 140);
         Col("Model", "Model", 180).DefaultCellStyle.Font = Theme.Bold;
@@ -466,6 +501,18 @@ public sealed class MainForm : Form
             TextRenderer.DrawText(g, type, Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line);
             e.Handled = true;
         }
+        else if (name == "Watch" && e.FormattedValue?.ToString() is { Length: > 0 } watch)
+        {
+            e.PaintBackground(e.CellBounds, selected);
+            var down = watch.StartsWith("Down");
+            var up = watch.StartsWith("Up");
+            var text = "●  " + watch;
+            var tw = TextRenderer.MeasureText(g, text, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
+            var chip = new Rectangle(e.CellBounds.X + S(6), e.CellBounds.Y + (e.CellBounds.Height - S(24)) / 2, Math.Min(tw + S(20), e.CellBounds.Width - S(10)), S(24));
+            Ui.FillRound(g, chip, S(12), down ? P.BadSoft : up ? P.GoodSoft : P.Hover);
+            TextRenderer.DrawText(g, text, Theme.Bold, chip, down ? P.Bad : up ? P.Good : P.Muted, Ui.Line | TextFormatFlags.HorizontalCenter);
+            e.Handled = true;
+        }
         else if (name == "Model" && string.IsNullOrEmpty(e.FormattedValue?.ToString()) && _grid.Rows[e.RowIndex].Tag is Device d)
         {
             string? status;
@@ -496,6 +543,18 @@ public sealed class MainForm : Form
         m.Items.Add("Show cameras (NVR / DVR)…", Theme.TypeIcon(DeviceTypes.Nvr, 16, icons), (_, _) => ShowCameras(SelectedDevice()));
         m.Items.Add("Make reachable (add temporary IP)", null, async (_, _) => { if (SelectedDevice() is { } d) await MakeReachableAsync(d); });
         m.Items.Add("Check open ports", null, async (_, _) => { if (SelectedDevice() is { } d) await CheckPortsAsync(d, force: true); });
+        var watchThis = new ToolStripMenuItem("Watch this device") { ToolTipText = "Ping it and tell me when it goes down or comes back" };
+        watchThis.Click += (_, _) => { if (SelectedDevice() is { } d) ToggleWatch(d); };
+        m.Items.Add(watchThis);
+        m.Items.Add("Watch devices…", null, (_, _) => PickWatched());
+        m.Opening += (_, _) =>
+        {
+            var d = SelectedDevice();
+            string? ip = null;
+            if (d != null) lock (d) ip = d.IsSelf ? null : d.Ip?.ToString();
+            watchThis.Enabled = ip != null;
+            watchThis.Checked = _watcher.Get(ip) != null;
+        };
         m.Items.Add("Get model", null, async (_, _) => { if (SelectedDevice() is { } d) await GetModelAsync(d); });
         m.Items.Add("Get model with Windows login…", null, async (_, _) => { if (SelectedDevice() is { } d) await GetWindowsModelAsync(d, askLogin: true); });
         m.Items.Add(new ToolStripSeparator());
@@ -552,7 +611,7 @@ public sealed class MainForm : Form
     {
         _status.Renderer = _renderer;
         _status.Padding = new Padding(S(14), S(3), S(4), S(3));
-        _stExport.Click += (_, _) => Export();
+        _stExport.Click += (_, _) => _export.ShowDropDown();
         _status.Items.AddRange(new ToolStripItem[] { _stCount, new ToolStripSeparator(), _stState, _stProgress, _stExport, _stCompany });
     }
 
@@ -656,6 +715,21 @@ public sealed class MainForm : Form
             Shot(Path.Combine(dir, "light-all-details.png"));
             _tabs.SelectedIndex = 0;
             await ShotModelsDialogAsync(Path.Combine(dir, "light-get-models-dialog.png"));
+            // 1.1.15: risky ports, watched devices, the watch dialog, a PDF report
+            SelectIp("10.0.0.2");
+            await Task.Delay(900);
+            _devicePanel.AutoScrollPosition = new Point(0, _devicePanel.DisplayRectangle.Height);
+            await Task.Delay(500);
+            Shot(Path.Combine(dir, "light-risky-ports.png"));
+            _nav.Select("watch");
+            SelectIp("10.0.0.201");
+            await Task.Delay(1200);
+            Shot(Path.Combine(dir, "light-watched.png"));
+            await ShotWatchDialogAsync(Path.Combine(dir, "light-watch-dialog.png"));
+            _nav.Select("all");
+            Core.Export.Exporter.Save(Path.Combine(dir, "report.pdf"), _rows.Values.Select(r => r.Tag).OfType<Device>().ToList(), ExportTitle(), WatchExportText);
+            SelectIp("10.0.0.45");
+            await Task.Delay(500);
             _chkDark.Checked = true; // switches to dark (not saved in demo mode)
             await Task.Delay(1500);
             Shot(Path.Combine(dir, "dark.png"));
@@ -672,6 +746,29 @@ public sealed class MainForm : Form
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
         Close();
+    }
+
+    private void SelectIp(string ip)
+    {
+        if (!_rows.TryGetValue(ip, out var row) || !row.Visible) return;
+        _grid.ClearSelection();
+        row.Selected = true;
+        _grid.CurrentCell = row.Cells["Ip"];
+    }
+
+    private async Task ShotWatchDialogAsync(string path)
+    {
+        var picks = _rows.Values.OrderBy(r => IpKey(r.Cells["Ip"].Value)).Select(r => r.Tag).OfType<Device>().Where(d => !d.IsSelf && d.Ip != null)
+            .Select(d => new Dialogs.WatchPick(d.Ip!.ToString(), d.Mac, d.DisplayName == d.Model ? "" : d.DisplayName, d.EffectiveType, d.Model ?? "", Category(d), _watcher.Get(d.Ip.ToString()) != null))
+            .ToList();
+        using var d = Dialogs.WatchDialog(picks, _settings.WatchSeconds, true, out _);
+        d.Form.StartPosition = FormStartPosition.Manual;
+        d.Form.Location = new Point(Left + 220, Top + 60);
+        d.Form.Show(this);
+        await Task.Delay(900);
+        Shot(path, d.Form);
+        d.Form.Close();
+        await Task.Delay(300);
     }
 
     /// <summary>The "Get models" dialog, shown without waiting for it, pictured, then closed.</summary>
@@ -726,6 +823,7 @@ public sealed class MainForm : Form
         _cmbAdapter.SelectedIndex = 0;
         ShowMySubnets();
         _uiTimer.Start();
+        ApplyWatchList(log: _watchList.Count > 0);
         if (_demo)
         {
             Core.Demo.DemoNetwork.Fill(_engine);
@@ -1062,6 +1160,7 @@ public sealed class MainForm : Form
                 changed = true;
             }
         }
+        ProcessWatch();
         if (_dirty.IsEmpty && !changed) { RefreshSelected(); return; }
 
         var sortCol = _grid.SortedColumn; var sortDir = _grid.SortOrder;
@@ -1078,6 +1177,7 @@ public sealed class MainForm : Form
             }
             FillRow(row, d);
             MaybeAutoCheckPorts(d);
+            FollowWatchedMac(d);
         }
         if (sortCol != null && sortDir != SortOrder.None)
             _grid.Sort(sortCol, sortDir == SortOrder.Ascending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending);
@@ -1087,7 +1187,7 @@ public sealed class MainForm : Form
 
     private void UpdateCounters()
     {
-        int total = 0, mine = 0, other = 0, routed = 0;
+        int total = 0, mine = 0, other = 0, routed = 0, risky = 0;
         var kinds = new Dictionary<string, int>();
         foreach (var r in _rows.Values)
         {
@@ -1095,6 +1195,7 @@ public sealed class MainForm : Form
             total++;
             lock (d)
             {
+                if (PortRisk.Risky(d.OpenPorts).Count > 0) risky++;
                 var k = Category(d);
                 kinds[k] = kinds.GetValueOrDefault(k) + 1;
                 if (d.IsSelf) { mine++; continue; }
@@ -1110,11 +1211,19 @@ public sealed class MainForm : Form
             i.Count = i.Key switch
             {
                 "all" => total, "net:mine" => mine, "net:other" => other, "net:routed" => routed,
+                "watch" => _watchList.Count, "risky" => risky,
                 _ => kinds.GetValueOrDefault(i.Key),
             };
         }
         if (_nav.Find("net:routed") is { } rt) rt.Hidden = routed == 0 && _nav.SelectedKey != "net:routed";
         if (_nav.Find("net:other") is { } ot) ot.Sub = _engine.CaptureAvailable || _demo ? "found by listening" : "needs Npcap to see them";
+        if (_nav.Find("watch") is { } wt)
+        {
+            var states = _watcher.States.Select(x => { lock (x) return x.Health; }).ToList();
+            var down = states.Count(h => h == Health.Down);
+            wt.Sub = _watchList.Count == 0 ? "pick devices…" : down > 0 ? $"{down} down" : states.Any(h => h == Health.Unknown) ? "checking…" : $"all up · every {Dialogs.EveryText(_settings.WatchSeconds)}";
+            wt.SubBad = down > 0;
+        }
         _nav.Invalidate();
         _stCount.Text = $"{total} devices  ·  {mine} my subnet  ·  {other} other subnets" + (routed > 0 ? $"  ·  {routed} routed" : "");
         UpdateSummary();
@@ -1157,7 +1266,13 @@ public sealed class MainForm : Form
     {
         var key = _nav.SelectedKey;
         if (key == "all") return true;
-        lock (d) return key.StartsWith("net:") ? NetKey(d) == key : Category(d) == key;
+        lock (d)
+            return key switch
+            {
+                "watch" => d.Ip != null && _watcher.Get(d.Ip.ToString()) != null,
+                "risky" => PortRisk.Risky(d.OpenPorts).Count > 0,
+                _ => key.StartsWith("net:") ? NetKey(d) == key : Category(d) == key,
+            };
     }
 
     private void FillRow(DataGridViewRow row, Device d)
@@ -1175,7 +1290,13 @@ public sealed class MainForm : Form
             row.Cells["Vendor"].ToolTipText = d.Vendor ?? "";
             row.Cells["Mac"].Value = d.Mac.Length > 0 ? d.Mac : "—";
             row.Cells["Net"].Value = NetText(d);
-            row.Cells["Ports"].Value = d.PortsCheckedAt == null ? (d.OpenPorts.Count > 0 ? string.Join(", ", d.OpenPorts) : "") : d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts);
+            var ports = d.PortsCheckedAt == null ? (d.OpenPorts.Count > 0 ? string.Join(", ", d.OpenPorts) : "") : d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts);
+            var risky = PortRisk.Risky(d.OpenPorts);
+            row.Cells["Ports"].Value = risky.Count > 0 ? "⚠ " + ports : ports;
+            row.Cells["Ports"].Style.ForeColor = risky.Count > 0 ? P.Bad : Color.Empty;
+            row.Cells["Ports"].Style.Font = risky.Count > 0 ? Theme.Bold : null;
+            row.Cells["Ports"].ToolTipText = string.Join("\n", risky.Select(f => $"{f.Port} {f.Service}: {f.Advice}"));
+            row.Cells["Watch"].Value = WatchText(d.Ip?.ToString());
             row.Cells["Via"].Value = string.Join(", ", d.Sources);
             row.Cells["Seen"].Value = d.LastSeen.ToString("HH:mm:ss");
             var otherNet = d.Ip != null && !d.Reachable;
@@ -1295,6 +1416,7 @@ public sealed class MainForm : Form
         string sig;
         lock (d) sig = string.Join("|", d.DisplayName, d.EffectiveType, d.TypeReason, d.Reachable, d.Mac, d.Ip, d.BehindNvr, d.Routed, d.Model, d.ModelSource, string.Join(",", d.OpenPorts),
             string.Join(",", d.PortInfo.Values), d.PortsCheckedAt, d.Vendor, d.Info.Count, string.Join(",", d.Info.Values), d.Services.Count, d.Sources.Count, d.TypeOverride);
+        sig += "|" + WatchText(d.Ip?.ToString()) + "|" + _settings.WatchSeconds;
         if (sig == _panelSig) return;
         _panelSig = sig;
         RenderDevicePanel(d);
@@ -1461,6 +1583,41 @@ public sealed class MainForm : Form
             if (reach.Controls.Count > 0) flow.Controls.Add(reach);
         }
 
+        // watch (ping monitor)
+        if (ip != null && !self)
+        {
+            flow.Controls.Add(SectionLabel("Watch"));
+            var ws = _watcher.Get(ip.ToString());
+            var wb = Buttons();
+            if (ws != null)
+            {
+                Health h; DateTime since; DateTime? last; long? ms; string via;
+                lock (ws) { h = ws.Health; since = ws.Since; last = ws.LastCheck; ms = ws.Ms; via = ws.Via; }
+                var line = h switch
+                {
+                    Health.Up => $"●  Up{(ms is { } m ? $" · {Ms(m)}" : "")}" + (via.StartsWith("port") ? $" (answers on {via}, not to ping)" : ""),
+                    Health.Down => $"●  Down since {since:HH:mm}  ({Ago(since)})",
+                    _ => "●  Checking…",
+                };
+                flow.Controls.Add(Text(line, Theme.Bold, h == Health.Down ? P.Bad : h == Health.Up ? P.Good : P.Muted));
+                flow.Controls.Add(Text($"Pinged every {Dialogs.EveryText(_settings.WatchSeconds)}" + (last is { } t ? $", last check {t:HH:mm:ss}." : "."), Theme.Base, P.Muted, 2));
+                var stop = MakeButton("Stop watching");
+                stop.Click += (_, _) => ToggleWatch(d);
+                wb.Controls.Add(stop);
+            }
+            else
+            {
+                flow.Controls.Add(Text("Get a message when this device stops answering, and when it comes back.", Theme.Base, P.Muted));
+                var start = MakeButton("Watch this device");
+                start.Click += (_, _) => ToggleWatch(d);
+                wb.Controls.Add(start);
+            }
+            var pick = MakeButton("Watch devices…");
+            pick.Click += (_, _) => PickWatched();
+            wb.Controls.Add(pick);
+            flow.Controls.Add(wb);
+        }
+
         // NVR / DVR: list its cameras
         if (nvrLike)
         {
@@ -1482,13 +1639,18 @@ public sealed class MainForm : Form
             flow.Controls.Add(table);
         }
 
-        // ports
-        flow.Controls.Add(SectionLabel("Open ports"));
+        // ports: what is open, what is closed, and what is risky
+        flow.Controls.Add(SectionLabel("Ports"));
+        var open = ports.Select(p => p.Port).ToHashSet();
+        var findings = PortRisk.Check(open);
         if (checkedAt != null && ports.Count > 0)
         {
             var chips = new ChipList { Margin = new Padding(0, 0, 0, S(4)) };
             foreach (var (port, info) in ports)
+            {
+                if (findings.Any(f => f.Port == port && f.Level == PortRiskLevel.High)) chips.Bad.Add(chips.Chips.Count);
                 chips.Chips.Add((port.ToString(), PortName(port), info.Length > 0 ? info : null));
+            }
             chips.Fit(W);
             flow.Controls.Add(chips);
         }
@@ -1496,10 +1658,25 @@ public sealed class MainForm : Form
             flow.Controls.Add(Text(checkedAt == null
                 ? (reachable ? "Not checked yet." : "Make the device reachable first, then check its ports.")
                 : $"No open ports found (checked {checkedAt:HH:mm:ss}).", Theme.Base, P.Muted));
+        if (checkedAt != null)
+        {
+            var closed = PortRisk.KeyServices.Where(k => !open.Contains(k.Port)).Select(k => $"{k.Name} {k.Port}").ToList();
+            if (closed.Count > 0) flow.Controls.Add(Text("Closed: " + string.Join("  ·  ", closed), Theme.Small, P.Muted, 4));
+            flow.Controls.Add(Text($"Checked {checkedAt:HH:mm:ss}, {_settings.Ports.Count} common ports.", Theme.Small, P.Muted, 2));
+        }
+        foreach (var f in findings.Where(f => f.Level == PortRiskLevel.High))
+        {
+            var card = new InfoCard { Tone = InfoCard.Kind.Bad, Width = W, Margin = new Padding(0, S(8), 0, 0), Cursor = Cursors.Default };
+            card.Title = $"⚠  {f.Service} is open (port {f.Port})";
+            card.Body = f.Advice;
+            flow.Controls.Add(card);
+        }
+        foreach (var f in findings.Where(f => f.Level == PortRiskLevel.Note))
+            flow.Controls.Add(Text($"{f.Service} ({f.Port}): {f.Advice}", Theme.Small, P.Muted, 6));
         if (reachable && !self)
         {
             var pb = Buttons();
-            var chk = MakeButton("Check ports");
+            var chk = MakeButton(checkedAt != null ? "Check ports again" : "Check ports");
             chk.Click += async (_, _) => await CheckPortsAsync(d, force: true);
             pb.Controls.Add(chk);
             flow.Controls.Add(pb);
@@ -1562,16 +1739,7 @@ public sealed class MainForm : Form
         return v * Math.Pow(1024, "KMGT".IndexOf(m.Groups[2].Value) + 1);
     }
 
-    private static string PortName(int p) => p switch
-    {
-        21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS", 80 => "HTTP", 81 or 82 or 88 => "HTTP", 110 => "POP3", 135 => "Windows RPC",
-        139 => "NetBIOS", 143 => "IMAP", 161 => "SNMP", 443 => "HTTPS", 445 => "SMB (file sharing)", 502 => "Modbus", 515 => "LPD printer",
-        554 => "RTSP (video)", 631 => "IPP printer", 1883 => "MQTT", 1900 => "UPnP", 3000 => "Web", 3306 => "MySQL", 3389 => "Remote Desktop",
-        5000 or 5001 => "Web / NAS", 5060 => "SIP", 5432 => "PostgreSQL", 5900 => "VNC", 7547 => "TR-069", 8000 or 8001 => "Web",
-        8008 or 8009 => "Cast", 8080 or 8081 or 8088 or 8888 or 8899 => "HTTP alt", 8291 => "Winbox", 8443 => "HTTPS alt", 8728 => "MikroTik API",
-        9000 => "Web", 9100 => "Printer (RAW)", 37777 => "Dahua", 49152 => "UPnP", 62078 => "Apple sync",
-        _ => "",
-    };
+    private static string PortName(int p) => PortRisk.Service(p);
 
     private RoundButton MakeButton(string text, bool primary = false) => new(text, primary);
 
@@ -1765,32 +1933,305 @@ public sealed class MainForm : Form
         lock (d) _engine.Store.Labels.Set(d);
     }
 
-    private void Export()
+    private void Export(string ext)
     {
+        var kind = ext switch { ".pdf" => "PDF report", ".csv" => "CSV – opens in Excel", ".html" => "Web page", _ => "Excel workbook" };
         using var dlg = new SaveFileDialog
         {
             Title = $"Export the {_rows.Values.Count(r => r.Visible)} devices shown",
-            Filter = "Excel workbook (*.xlsx)|*.xlsx|CSV – opens in Excel (*.csv)|*.csv|Report for browser / PDF (*.html)|*.html",
+            Filter = $"{kind} (*{ext})|*{ext}",
             FileName = $"{AppInfo.Name}-{DateTime.Now:yyyyMMdd-HHmm}",
+            DefaultExt = ext.TrimStart('.'),
             AddExtension = true,
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         var path = dlg.FileName;
-        var ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is not (".xlsx" or ".csv" or ".html" or ".htm")) path += dlg.FilterIndex switch { 2 => ".csv", 3 => ".html", _ => ".xlsx" };
+        if (!path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) path += ext;
         try
         {
             // what the list shows (side menu + filter)
             var devices = _rows.Values.Where(r => r.Visible).Select(r => r.Tag).OfType<Device>().ToList();
-            Core.Export.Exporter.Save(path, devices, $"Network devices – {Environment.MachineName} – {DateTime.Now:yyyy-MM-dd HH:mm}");
+            UseWaitCursor = true;
+            try { Core.Export.Exporter.Save(path, devices, ExportTitle(), WatchExportText); }
+            finally { UseWaitCursor = false; }
             _stState.Text = $"Exported {devices.Count} devices to {path}";
             if (MessageBox.Show(this, $"Saved {devices.Count} devices to\n{path}\n\nOpen it now?", AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                 Launcher.Open(path);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Could not save the file: " + ex.Message + "\n\n(Is it open in Excel? Close it and try again.)", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Could not save the file: " + ex.Message + $"\n\n(Is it open in {(ext == ".pdf" ? "a PDF viewer" : "Excel")}? Close it and try again.)", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+
+    // ───────────────────────────── watch devices ─────────────────────────────
+
+    private readonly Dictionary<string, DateTime> _downSince = new();
+
+    /// <summary>"Up · 3 ms", "Down · 4 min", "Checking…", or "" when the address is not watched.</summary>
+    private string WatchText(string? ip)
+    {
+        var s = _watcher.Get(ip);
+        if (s == null) return "";
+        lock (s)
+            return s.Health switch
+            {
+                Health.Up => s.Ms is { } ms ? $"Up · {Ms(ms)}" : "Up",
+                Health.Down => $"Down · {Ago(s.Since)}",
+                _ => "Checking…",
+            };
+    }
+
+    private static string Ms(long ms) => ms < 1 ? "<1 ms" : $"{ms} ms";
+
+    private static string Ago(DateTime t)
+    {
+        var m = (DateTime.Now - t).TotalMinutes;
+        return m < 1 ? "just now" : m < 60 ? $"{(int)m} min" : m < 48 * 60 ? $"{(int)(m / 60)} h {(int)(m % 60)} min" : $"{(int)(m / 1440)} days";
+    }
+
+    private static string Took(TimeSpan t) =>
+        t.TotalMinutes < 1 ? $"{Math.Max(1, (int)t.TotalSeconds)} s" : t.TotalMinutes < 60 ? $"{(int)t.TotalMinutes} min" : $"{(int)t.TotalHours} h {t.Minutes} min";
+
+    /// <summary>For the exports: "Up · 3 ms", "Down since 10:42".</summary>
+    private string WatchExportText(Device d)
+    {
+        string? ip;
+        lock (d) ip = d.Ip?.ToString();
+        var s = _watcher.Get(ip);
+        if (s == null) return "";
+        lock (s)
+            return s.Health switch
+            {
+                Health.Up => s.Ms is { } ms ? $"Up · {Ms(ms)}" : "Up",
+                Health.Down => $"Down since {(s.Since.Date == DateTime.Today ? s.Since.ToString("HH:mm") : s.Since.ToString("yyyy-MM-dd HH:mm"))}",
+                _ => "Checking",
+            };
+    }
+
+    /// <summary>Ports a device is known to have open, best first (for devices that ignore ping).</summary>
+    private IReadOnlyCollection<int> OpenPortsFor(IPAddress ip)
+    {
+        var d = _engine.Store.FindByIp(ip);
+        if (d == null) return Array.Empty<int>();
+        int[] best = { 445, 3389, 80, 443, 22, 9100, 554, 8080, 135, 139 };
+        lock (d) return d.OpenPorts.OrderBy(p => Array.IndexOf(best, p) is var i and >= 0 ? i : 100).ToList();
+    }
+
+    /// <summary>"Printer SHARP MX-3114N (10.0.0.201)".</summary>
+    private string WatchLabel(string ip)
+    {
+        var d = _engine.Store.Find(ip);
+        if (d != null)
+            lock (d)
+            {
+                var name = d.DisplayName.Length > 0 ? d.DisplayName : d.Model ?? "";
+                return $"{d.EffectiveType} {name} ({ip})".Replace("  ", " ");
+            }
+        var w = _watchList.FirstOrDefault(x => x.Ip == ip);
+        return w != null && w.Name.Length > 0 ? $"{w.Name} ({ip})" : ip;
+    }
+
+    private void PickWatched()
+    {
+        var picks = new List<Dialogs.WatchPick>();
+        var seen = new HashSet<string>();
+        foreach (var row in _rows.Values.OrderBy(r => IpKey(r.Cells["Ip"].Value)))
+        {
+            if (row.Tag is not Device d) continue;
+            lock (d)
+            {
+                if (d.IsSelf || d.Ip == null) continue;
+                var ip = d.Ip.ToString();
+                seen.Add(ip);
+                picks.Add(new Dialogs.WatchPick(ip, d.Mac, d.DisplayName == d.Model ? "" : d.DisplayName, d.EffectiveType, d.Model ?? "", Category(d), _watcher.Get(ip) != null));
+            }
+        }
+        foreach (var w in _watchList.Where(w => !seen.Contains(w.Ip)))
+            picks.Add(new Dialogs.WatchPick(w.Ip, w.Mac, w.Name, "(not in the list now)", "", "", true));
+        var choice = Dialogs.AskWatch(this, picks, _settings.WatchSeconds, _settings.WatchSound);
+        if (choice == null) return;
+        SetWatchList(choice.Devices.Select(p => new WatchItem { Ip = p.Ip, Mac = p.Mac, Name = p.Name.Length > 0 ? p.Name : p.Model }).ToList(), choice.Seconds, choice.Sound);
+    }
+
+    private void ToggleWatch(Device d)
+    {
+        WatchItem item;
+        lock (d)
+        {
+            if (d.IsSelf || d.Ip == null) return;
+            item = new WatchItem { Ip = d.Ip.ToString(), Mac = d.Mac, Name = d.DisplayName.Length > 0 ? d.DisplayName : d.Model ?? "" };
+        }
+        var list = _watchList.ToList();
+        if (list.RemoveAll(w => w.Ip == item.Ip) == 0) list.Add(item);
+        SetWatchList(list, _settings.WatchSeconds, _settings.WatchSound);
+    }
+
+    private void SetWatchList(List<WatchItem> items, int seconds, bool sound)
+    {
+        _watchList.Clear();
+        _watchList.AddRange(items);
+        _settings.WatchSeconds = seconds;
+        _settings.WatchSound = sound;
+        if (!_demo) _settings.Save(); // _watchList is _settings.Watch outside demo mode
+        ApplyWatchList(log: true);
+    }
+
+    private void ApplyWatchList(bool log)
+    {
+        _watcher.Interval = TimeSpan.FromSeconds(_settings.WatchSeconds);
+        _watcher.SetTargets(_watchList.Select(w => w.Ip));
+        foreach (var ip in _downSince.Keys.Where(k => _watcher.Get(k) == null).ToList()) _downSince.Remove(ip);
+        if (_watchList.Count > 0)
+        {
+            _watcher.Start();
+            if (log) _engine.Log($"Watch: {_watchList.Count} device(s), ping every {Dialogs.EveryText(_settings.WatchSeconds)}: {string.Join(", ", _watchList.Select(w => w.Ip))}");
+            if (!_demo) EnsureTray();
+        }
+        else
+        {
+            _watcher.Stop();
+            if (log) _engine.Log("Watch: stopped (no devices picked)");
+            if (_tray != null) _tray.Visible = false;
+        }
+        _grid.Columns["Watch"]!.Visible = _watchList.Count > 0;
+        foreach (var row in _rows.Values)
+            if (row.Tag is Device d) row.Cells["Watch"].Value = WatchText(d.Ip?.ToString());
+        UpdateCounters();
+        if (_nav.SelectedKey == "watch") ApplyFilter();
+        _selectedRev = -1;
+        UpdateTrayText();
+    }
+
+    /// <summary>Alerts and list updates for the watched devices (on the UI thread).</summary>
+    private void ProcessWatch()
+    {
+        var any = false;
+        while (_watchEvents.TryDequeue(out var ev)) { any = true; Announce(ev.State, ev.Before); }
+        if (_watchChecked) { _watchChecked = false; any = true; }
+        if (!any) return;
+        foreach (var w in _watchList)
+            if (_rows.TryGetValue(w.Ip, out var row)) row.Cells["Watch"].Value = WatchText(w.Ip);
+        UpdateCounters();
+        UpdateTrayText();
+        _selectedRev = -1; // the device pane shows the watch state too
+    }
+
+    private void Announce(WatchState s, Health before)
+    {
+        Health now; DateTime since; long? ms;
+        lock (s) { now = s.Health; since = s.Since; ms = s.Ms; }
+        if (_watcher.Get(s.Ip) != s) return; // no longer watched
+        var label = WatchLabel(s.Ip);
+        if (now == Health.Down)
+        {
+            _downSince[s.Ip] = since;
+            Alert(s.Ip, $"Down: {label}", before == Health.Unknown ? "It does not answer." : $"Stopped answering at {since:HH:mm}.", bad: true);
+        }
+        else if (now == Health.Up && before == Health.Down)
+        {
+            var was = _downSince.Remove(s.Ip, out var t) ? $" It was down for {Took(since - t)}." : "";
+            Alert(s.Ip, $"Back up: {label}", $"Answers again{(ms is { } m ? $" ({Ms(m)})" : "")}.{was}", bad: false);
+        }
+    }
+
+    private void Alert(string ip, string title, string text, bool bad)
+    {
+        _engine.Log($"Watch: {title}. {text}");
+        _stState.Text = $"{title}. {text}";
+        if (_demo) return;
+        if (_settings.WatchSound) (bad ? System.Media.SystemSounds.Hand : System.Media.SystemSounds.Asterisk).Play();
+        EnsureTray();
+        _trayIp = ip;
+        _tray!.ShowBalloonTip(15000, title, text, bad ? ToolTipIcon.Warning : ToolTipIcon.Info);
+        if (!ContainsFocus || WindowState == FormWindowState.Minimized) Native.Flash(this);
+    }
+
+    private void EnsureTray()
+    {
+        if (_tray == null)
+        {
+            _tray = new NotifyIcon { Icon = Icon };
+            _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowFromTray(null); };
+            _tray.BalloonTipClicked += (_, _) => ShowFromTray(_trayIp);
+            var menu = new ContextMenuStrip { Renderer = _renderer };
+            menu.Items.Add("Open NetFinder", null, (_, _) => ShowFromTray(null));
+            menu.Items.Add("Watch devices…", null, (_, _) => { ShowFromTray(null); PickWatched(); });
+            _tray.ContextMenuStrip = menu;
+        }
+        _tray.Visible = true;
+        UpdateTrayText();
+    }
+
+    private void UpdateTrayText()
+    {
+        if (_tray == null) return;
+        var down = _watcher.States.Count(x => { lock (x) return x.Health == Health.Down; });
+        var t = $"{AppInfo.Name}: watching {_watchList.Count} device(s)" + (down > 0 ? $", {down} down" : "");
+        _tray.Text = t.Length > 63 ? t[..63] : t;
+    }
+
+    private void ShowFromTray(string? ip)
+    {
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        Activate();
+        if (ip == null || !_rows.TryGetValue(ip, out var row)) return;
+        if (!row.Visible) { _txtFilter.Text = ""; _nav.Select("watch"); }
+        if (!row.Visible) return;
+        _grid.ClearSelection();
+        row.Selected = true;
+        _grid.CurrentCell = row.Cells["Ip"];
+    }
+
+    /// <summary>When DHCP gives a watched device a new IP, the watch follows it (by its MAC).</summary>
+    private void FollowWatchedMac(Device d)
+    {
+        if (_watchList.Count == 0) return;
+        string mac; string? ip; bool reachable;
+        lock (d) { mac = d.Mac; ip = d.Ip?.ToString(); reachable = d.Reachable; }
+        if (mac.Length == 0 || ip == null || !reachable) return;
+        var item = _watchList.FirstOrDefault(w => w.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
+        if (item == null || item.Ip == ip || _watchList.Any(w => w.Ip == ip)) return;
+        if (_engine.Store.Find(item.Ip) is { } old && string.Equals(old.Mac, mac, StringComparison.OrdinalIgnoreCase)) return; // same device, several IPs
+        _engine.Log($"Watch: {mac} moved from {item.Ip} to {ip}; watching the new IP");
+        item.Ip = ip;
+        if (!_demo) _settings.Save();
+        ApplyWatchList(log: false);
+    }
+
+    // ───────────────────────────── export helpers ─────────────────────────────
+
+    private string ExportTitle() => $"Network devices – {(_demo ? "IT-DESK01" : Environment.MachineName)} – {DateTime.Now:yyyy-MM-dd HH:mm}";
+
+    /// <summary>Arabic / Hebrew text for the PDF: drawn by Windows (joined letters, right to left) as a sharp picture.</summary>
+    private static Core.Export.PdfReport.Picture? PdfPicture(string text, double sizePt, bool bold)
+    {
+        try
+        {
+            const float scale = 4f; // pixels per point: about 290 dpi
+            using var font = new Font("Segoe UI", (float)(sizePt * scale), bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel);
+            var rtl = text.FirstOrDefault(char.IsLetter) is var c && Core.Export.PdfReport.IsComplex(c.ToString());
+            using var fmt = new StringFormat(StringFormat.GenericTypographic) { FormatFlags = StringFormatFlags.NoWrap | (rtl ? StringFormatFlags.DirectionRightToLeft : 0) };
+            SizeF size;
+            using (var probe = new Bitmap(1, 1))
+            using (var pg = Graphics.FromImage(probe))
+                size = pg.MeasureString(text, font, PointF.Empty, fmt);
+            var w = (int)Math.Ceiling(size.Width) + 8;
+            var h = (int)Math.Ceiling(font.GetHeight()) + 4;
+            using var bmp = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.Clear(Color.Transparent);
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                using var ink = new SolidBrush(Color.FromArgb(0x16, 0x20, 0x2C));
+                g.DrawString(text, font, ink, new RectangleF(2, 1, w - 4, h - 2), fmt);
+            }
+            using var ms = new MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            return new Core.Export.PdfReport.Picture(ms.ToArray(), w / scale, h / scale);
+        }
+        catch { return null; }
     }
 
     // ───────────────────────────── models ─────────────────────────────
@@ -2142,6 +2583,8 @@ public sealed class MainForm : Form
     {
         _lifetime.Cancel();
         _scanCts?.Cancel();
+        _watcher.Dispose();
+        if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
         _uiTimer.Stop();
         _repeatTimer.Stop();
         _updateTimer.Stop();

@@ -58,7 +58,22 @@ public sealed class Settings
     {
         21, 22, 23, 25, 53, 80, 81, 82, 88, 110, 139, 143, 161, 443, 445, 502, 554, 631, 1883, 1900, 3000, 3306, 3389,
         5000, 5001, 5060, 5432, 5900, 7547, 8000, 8001, 8008, 8080, 8081, 8088, 8443, 8728, 8888, 8899, 9000, 9100, 37777, 49152, 62078, 8009, 8291, 135,
+        // 1.1.15: risky services (see PortRisk)
+        512, 513, 514, 1433, 1723, 2375, 5800, 5985, 6379, 9200, 11211, 27017,
     };
+
+    /// <summary>
+    /// Bumped when new ports join the default list, so a saved list gets them once. No initial value on purpose:
+    /// a file from an older version has no PortsVersion, so it reads as 0 and gets the new ports.
+    /// </summary>
+    public int PortsVersion { get; set; }
+
+    /// <summary>Devices pinged by "Watch devices" (kept between runs).</summary>
+    public List<WatchItem> Watch { get; set; } = new();
+    /// <summary>How often each watched device is pinged.</summary>
+    public int WatchSeconds { get; set; } = 60;
+    /// <summary>Play a sound when a watched device goes down or comes back.</summary>
+    public bool WatchSound { get; set; } = true;
 
     public int PortTimeoutMs { get; set; } = 700;
 
@@ -85,6 +100,13 @@ public sealed class Settings
             {
                 // 1.1.6: port 135 tells Windows PCs apart (for "Get model" over WMI)
                 if (!s.Ports.Contains(135)) s.Ports.Add(135);
+                // 1.1.15: risky services. 
+                if (s.PortsVersion < 2)
+                {
+                    foreach (var p in Net.PortRisk.ExtraPorts) if (!s.Ports.Contains(p)) s.Ports.Add(p);
+                    s.PortsVersion = 2;
+                }
+                s.WatchSeconds = Math.Clamp(s.WatchSeconds, 10, 3600);
                 return s;
             }
         }
@@ -101,4 +123,12 @@ public sealed class Settings
         }
         catch { }
     }
+}
+
+/// <summary>A device picked in "Watch devices". The MAC lets the IP follow the device when DHCP changes it.</summary>
+public sealed class WatchItem
+{
+    public string Ip { get; set; } = "";
+    public string Mac { get; set; } = "";
+    public string Name { get; set; } = "";
 }

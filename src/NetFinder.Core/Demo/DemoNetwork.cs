@@ -21,6 +21,18 @@ public static class DemoNetwork
         return a;
     }
 
+    /// <summary>Devices "watched" in demo mode: the printer is down, the others answer.</summary>
+    public static List<WatchItem> Watched() => new[] { "10.0.0.2", "10.0.0.3", "10.0.0.12", "10.0.0.64", "10.0.0.201" }
+        .Select(ip => new WatchItem { Ip = ip }).ToList();
+
+    public static Task<Monitoring.ProbeResult> WatchProbe(IPAddress ip, CancellationToken ct) => Task.FromResult(ip.ToString() switch
+    {
+        "10.0.0.201" => new Monitoring.ProbeResult(false, null, ""),
+        "10.0.0.3" => new Monitoring.ProbeResult(true, 1, "ping"),
+        "10.0.0.12" => new Monitoring.ProbeResult(true, 2, "port 445"),
+        _ => new Monitoring.ProbeResult(true, 3, "ping"),
+    });
+
     public static void Fill(NetworkEngine e)
     {
         var a = e.Adapters.FirstOrDefault();
@@ -45,9 +57,9 @@ public static class DemoNetwork
         {
             d.Hostname = "TL-WR820N"; d.OfferModel("TL-WR820N 2.0", "UPnP", 75); d.Info["DHCP server"] = "yes"; Ports(d, 53, 80);
         });
-        Add("3C:52:82:AA:BB:02", "10.0.0.2", "LLDP", d => { d.Hostname = "CORE-SW1"; d.OfferModel("Aruba 2930F-48G Switch", "LLDP", 40); d.Info["Connected to its port"] = "1/1/7"; Ports(d, 22, 80, 443); });
+        Add("3C:52:82:AA:BB:02", "10.0.0.2", "LLDP", d => { d.Hostname = "CORE-SW1"; d.OfferModel("Aruba 2930F-48G Switch", "LLDP", 40); d.Info["Connected to its port"] = "1/1/7"; Ports(d, 22, 23, 80, 443); });
         Add("00:50:56:9A:01:03", "10.0.0.3", "NetBIOS", d => { d.Hostname = "new-fileserver"; Windows(d, "VMware Virtual Platform", "VMware, Inc.", "Windows Server 2019 Standard", "WMI"); Ports(d, 135, 139, 445, 3389); });
-        Add("00:90:A9:44:55:07", "10.0.0.7", "mDNS", d => { d.Hostname = "WDMYCLOUDEX4100"; d.OfferModel("WDMyCloudEX4100", "UPnP", 75); d.Services.Add("_smb._tcp"); Ports(d, 80, 443, 445); });
+        Add("00:90:A9:44:55:07", "10.0.0.7", "mDNS", d => { d.Hostname = "WDMYCLOUDEX4100"; d.OfferModel("WDMyCloudEX4100", "UPnP", 75); d.Services.Add("_smb._tcp"); Ports(d, 21, 80, 443, 445); });
         Add("00:50:56:9A:01:12", "10.0.0.12", "NetBIOS", d => { d.Hostname = "bio-server"; Windows(d, "VMware Virtual Platform", "VMware, Inc.", "Windows Server 2016 Standard", "WMI"); Ports(d, 80, 135, 445); });
         Add("9C:B6:54:1A:2F:43", "10.0.0.43", "NetBIOS", d => { d.Hostname = "madapc0165"; Windows(d, "HP ProDesk 600 G3 MT", "HP", "Windows 10 Pro 22H2"); Ports(d, 135, 139, 445); });
         Add("9C:B6:54:1A:2F:80", "10.0.0.45", "NetBIOS", d =>
