@@ -1,5 +1,6 @@
 using System.Reflection;
 using NetFinder.Core.Model;
+using static NetFinder.Core.Text.L;
 
 namespace NetFinder.Ui;
 

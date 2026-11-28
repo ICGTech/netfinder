@@ -82,6 +82,9 @@ public sealed class Settings
 
     public int PortTimeoutMs { get; set; } = 700;
 
+    /// <summary>Language of the window: "en", "ar", "fr"… (see Text.L).</summary>
+    public string Language { get; set; } = "en";
+
     /// <summary>SNMP read communities tried to read model / serial (comma separated). Only "public" by default.</summary>
     public string SnmpCommunities { get; set; } = "public";
     [System.Text.Json.Serialization.JsonIgnore]

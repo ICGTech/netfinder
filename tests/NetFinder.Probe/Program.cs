@@ -493,6 +493,29 @@ if (args.Length >= 1 && args[0] == "selftest")
         Check("port name TP-Link", NetFinder.Core.Net.SnmpTables.PortName(null, "gigabitEthernet 1/0/5 : copper", 5), "gigabitEthernet 1/0/5");
         NetFinder.Core.Net.Snmp.Port = 161;
     }
+
+    // languages: every translation keeps the {0}, {1}… of its English text, and the texts with values find their translation
+    {
+        static string Holes(string s) => string.Join(",", System.Text.RegularExpressions.Regex.Matches(s.Replace("{{", "").Replace("}}", ""), @"\{\d+(?:[,:][^}]*)?\}").Select(m => m.Value).OrderBy(x => x));
+        foreach (var lang in NetFinder.Core.Text.L.Builtin.Where(l => l.Code != "en"))
+        {
+            var table = NetFinder.Core.Text.L.Table(lang.Code);
+            var bad = table.Where(kv => !kv.Key.StartsWith("_") && Holes(kv.Key) != Holes(kv.Value)).Select(kv => kv.Key).ToList();
+            var formatErrors = 0;
+            foreach (var kv in table.Where(kv => !kv.Key.StartsWith("_")))
+                try { _ = string.Format(System.Globalization.CultureInfo.InvariantCulture, kv.Value, 1, 2, 3, 4, 5, 6, 7, 8); } catch (FormatException) { formatErrors++; }
+            Check($"language {lang.Code}: texts, wrong placeholders, broken formats", $"{table.Count > 600} {bad.Count} {formatErrors}" + (bad.Count > 0 ? " " + bad[0] : ""), "True 0 0");
+        }
+        NetFinder.Core.Text.L.Use("ar");
+        var n = 5;
+        Check("arabic text with a value", NetFinder.Core.Text.L.T($"Watch {n} devices"), "مراقبة 5 أجهزة");
+        Check("arabic text, missing translation stays English", NetFinder.Core.Text.L.T("No such text"), "No such text");
+        Check("arabic is right to left", NetFinder.Core.Text.L.Rtl, true);
+        using (NetFinder.Core.Text.L.Scope("fr")) Check("french for one sentence", NetFinder.Core.Text.L.T("Save"), "Enregistrer");
+        Check("back to arabic", NetFinder.Core.Text.L.T("Save"), "حفظ");
+        NetFinder.Core.Text.L.Use("en");
+        Check("english", NetFinder.Core.Text.L.T($"Watch {n} devices"), "Watch 5 devices");
+    }
     Console.WriteLine(fails == 0 ? "ALL OK" : $"{fails} FAILED");
     return;
 }

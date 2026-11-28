@@ -10,6 +10,7 @@ using NetFinder.Core.Monitoring;
 using NetFinder.Core.Net;
 using NetFinder.Core.Plugins;
 using NetFinder.Core.Update;
+using static NetFinder.Core.Text.L;
 
 namespace NetFinder.Ui;
 
@@ -22,30 +23,30 @@ public sealed class MainForm : Form
 
     // header: one row
     private readonly ToolStrip _tools = new() { GripStyle = ToolStripGripStyle.Hidden, CanOverflow = false, ImageScalingSize = new Size(20, 20) };
-    private readonly ToolStripButton _btnScan = new("▶  Scan") { Tag = "primary", Font = Theme.HeaderBold, ToolTipText = "Sweep my subnet (or the Range) + probe other subnets + ask devices for their names" };
-    private readonly ToolStripButton _btnStop = new("Stop") { Enabled = false, Visible = false, Font = Theme.Header };
-    private readonly ToolStripButton _btnListen = new("Listening") { Tag = "pill", CheckOnClick = true, Font = Theme.Bold, ToolTipText = "Passively catch any device that talks on the wire, on any subnet" };
+    private readonly ToolStripButton _btnScan = new(T("▶  Scan")) { Tag = "primary", Font = Theme.HeaderBold, ToolTipText = T("Sweep my subnet (or the Range) + probe other subnets + ask devices for their names") };
+    private readonly ToolStripButton _btnStop = new(T("Stop")) { Enabled = false, Visible = false, Font = Theme.Header };
+    private readonly ToolStripButton _btnListen = new(T("Listening")) { Tag = "pill", CheckOnClick = true, Font = Theme.Bold, ToolTipText = T("Passively catch any device that talks on the wire, on any subnet") };
     // scan options, next to Scan (on/off buttons with a check box)
-    private readonly ToolStripButton _chkRepeat = new("Repeat") { Tag = "toggle", CheckOnClick = true, Font = Theme.Header,
-        ToolTipText = "Repeat the scan every 2 minutes: new devices are added and the list is not emptied (catches phones that sleep on Wi-Fi)" };
-    private readonly ToolStripButton _chkDeep = new("Deep scan") { Tag = "toggle", CheckOnClick = true, Font = Theme.Header,
-        ToolTipText = "Deep scan: also look through all 65,536 addresses of 192.168.x.x for devices left on another range (about 45 s more per scan, needs Npcap)" };
-    private readonly ToolStripMenuItem _chkDark = new("Dark mode") { CheckOnClick = true };
-    private readonly ToolStripDropDownButton _menu = new("☰") { ShowDropDownArrow = false, Font = Theme.HeaderBold, ToolTipText = "Repeat scan, deep scan, dark mode, settings…" };
+    private readonly ToolStripButton _chkRepeat = new(T("Repeat")) { Tag = "toggle", CheckOnClick = true, Font = Theme.Header,
+        ToolTipText = T("Repeat the scan every 2 minutes: new devices are added and the list is not emptied (catches phones that sleep on Wi-Fi)") };
+    private readonly ToolStripButton _chkDeep = new(T("Deep scan")) { Tag = "toggle", CheckOnClick = true, Font = Theme.Header,
+        ToolTipText = T("Deep scan: also look through all 65,536 addresses of 192.168.x.x for devices left on another range (about 45 s more per scan, needs Npcap)") };
+    private readonly ToolStripMenuItem _chkDark = new(T("Dark mode")) { CheckOnClick = true };
+    private readonly ToolStripDropDownButton _menu = new("☰") { ShowDropDownArrow = false, Font = Theme.HeaderBold, ToolTipText = T("Repeat scan, deep scan, dark mode, settings…") };
     private readonly InputBox _rangeBox = new(210);
     private readonly InputBox _filterBox = new(250) { SearchIcon = true };
     private readonly ToolStripControlHost _rangeHost;
     private readonly int _rangeWidth;
     private readonly BrandItem _brand = new();
-    private readonly ToolStripLabel _rangeLabel = new("Range") { Tag = "muted", Font = Theme.Header };
+    private readonly ToolStripLabel _rangeLabel = new(T("Range")) { Tag = "muted", Font = Theme.Header };
     /// <summary>Top of the side menu: the filter box (it was in the header, which now holds the scan options).</summary>
     private readonly Panel _navTop = new() { Dock = DockStyle.Top };
     private TextBox _txtRange => _rangeBox.Box;
     private TextBox _txtFilter => _filterBox.Box;
-    private readonly ToolStripButton _btnModels = new("Get models") { Font = Theme.Header, ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
-    private readonly ToolStripStatusLabel _stExport = new("Export results…") { IsLink = true, Visible = false, LinkBehavior = LinkBehavior.HoverUnderline, Margin = new Padding(8, 3, 8, 2) };
+    private readonly ToolStripButton _btnModels = new(T("Get models")) { Font = Theme.Header, ToolTipText = T("Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)") };
+    private readonly ToolStripStatusLabel _stExport = new(T("Export results…")) { IsLink = true, Visible = false, LinkBehavior = LinkBehavior.HoverUnderline, Margin = new Padding(8, 3, 8, 2) };
     private Dialogs.WindowsLogin? _winLogin; // memory only, never saved
-    private readonly ToolStripDropDownButton _export = new("Export") { ShowDropDownArrow = false, Font = Theme.Header, ToolTipText = "Save the list shown as Excel, PDF, CSV or a web page" };
+    private readonly ToolStripDropDownButton _export = new(T("Export")) { ShowDropDownArrow = false, Font = Theme.Header, ToolTipText = T("Save the list shown as Excel, PDF, CSV or a web page") };
 
     // watch devices (ping monitor)
     private readonly Watcher _watcher;
@@ -54,7 +55,7 @@ public sealed class MainForm : Form
     private volatile bool _watchChecked;
     private NotifyIcon? _tray;
     private string? _trayIp;
-    private readonly RoundButton _watchPick = new("Pick devices to watch…", false) { Visible = false };
+    private readonly RoundButton _watchPick = new(T("Pick devices to watch…"), false) { Visible = false };
     private bool _virtualSkipLogged;
     private CancellationTokenSource? _modelsCts;
 
@@ -71,14 +72,14 @@ public sealed class MainForm : Form
     private readonly Panel _navHost = new() { Dock = DockStyle.Left };
     private readonly NavList _nav = new() { Dock = DockStyle.Fill };
     private readonly FlowLayoutPanel _navBottom = new() { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
-    private readonly Label _adapterLabel = new() { Text = "ADAPTER", AutoSize = true, Font = Theme.Section };
+    private readonly Label _adapterLabel = new() { Text = T("ADAPTER"), AutoSize = true, Font = Theme.Section };
     private readonly DropPicker _cmbAdapter = new();
     private readonly InfoCard _npcapCard = new();
 
     // list
     private readonly SplitContainer _split = new() { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, FixedPanel = FixedPanel.Panel2, SplitterWidth = 1 };
     private readonly FlowLayoutPanel _titleRow = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = false };
-    private readonly Label _title = new() { Text = "All devices", AutoSize = true, Font = Theme.Heading, Margin = new Padding(0), UseMnemonic = false };
+    private readonly Label _title = new() { Text = T("All devices"), AutoSize = true, Font = Theme.Heading, Margin = new Padding(0), UseMnemonic = false };
     private readonly Label _summary = new() { AutoSize = true, Font = Theme.Header };
     private readonly Panel _gridCard = new() { Dock = DockStyle.Fill, Padding = new Padding(1) };
     private readonly DataGridView _grid = new();
@@ -86,17 +87,17 @@ public sealed class MainForm : Form
 
     // details pane
     private readonly DetailsHeader _detailsHead = new() { Dock = DockStyle.Top };
-    private readonly SegmentedTabs _tabs = new("Overview", "All details", "Log") { Dock = DockStyle.Top };
+    private readonly SegmentedTabs _tabs = new(T("Overview"), T("All details"), T("Log")) { Dock = DockStyle.Top };
     private readonly Panel _tabBody = new() { Dock = DockStyle.Fill };
     private readonly Panel _devicePanel = new() { Dock = DockStyle.Fill, AutoScroll = true };
     private readonly Panel _detailsPanel = new() { Dock = DockStyle.Fill, AutoScroll = true, Visible = false };
     private readonly InfoTable _details = new() { Location = new Point(0, 12), KeyWidth = 130 };
     private readonly Panel _logPanel = new() { Dock = DockStyle.Fill, Visible = false };
     private readonly FlowLayoutPanel _logBar = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = true };
-    private readonly LinkLabel _logCopy = new() { Text = "Copy", AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
+    private readonly LinkLabel _logCopy = new() { Text = T("Copy"), AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
     private readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BorderStyle = BorderStyle.None };
     // the Log tab shows the lines about the selected device (all of them when nothing is selected or the box is unticked)
-    private readonly CheckBox _logOnlySel = new() { Text = "Only lines about the selected device", Checked = true, AutoSize = true, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 5, 12, 0) };
+    private readonly CheckBox _logOnlySel = new() { Text = T("Only lines about the selected device"), Checked = true, AutoSize = true, FlatStyle = FlatStyle.Flat, Margin = new Padding(2, 5, 12, 0) };
     private readonly Label _logInfo = new() { AutoSize = true, Margin = new Padding(0, 7, 12, 0) };
     private readonly List<string> _logAll = new();
     private Regex? _logFilter;
@@ -105,7 +106,7 @@ public sealed class MainForm : Form
 
     // status
     private readonly StatusStrip _status = new() { SizingGrip = true };
-    private readonly ToolStripStatusLabel _stCount = new("0 devices") { Tag = "muted" };
+    private readonly ToolStripStatusLabel _stCount = new(T("0 devices")) { Tag = "muted" };
     private readonly ToolStripStatusLabel _stState = new("") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly ToolStripProgressBar _stProgress = new() { Style = ProgressBarStyle.Marquee, Visible = false, Width = 120 };
     private readonly ToolStripStatusLabel _stCompany = new("© " + AppInfo.Company) { Tag = "muted" };
@@ -206,14 +207,14 @@ public sealed class MainForm : Form
             ApplyNativeTheme();
             if (_shotDir != null) { BeginInvoke(new Action(async () => await TakeScreenshotsAsync(_shotDir))); return; }
             if (_whatsNew != null)
-                BeginInvoke(() => MessageBox.Show(this,
-                    $"{AppInfo.Name} was updated to version {AppInfo.Version}." + (_whatsNew.Length > 0 ? "\n\nWhat's new:\n" + _whatsNew : ""),
+                BeginInvoke(() => Ui.Box(this,
+                    T($"{AppInfo.Name} was updated to version {AppInfo.Version}.") + (_whatsNew.Length > 0 ? T("\n\nWhat's new:\n") + _whatsNew : ""),
                     AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information));
             else if (RunningFromZip())
-                BeginInvoke(() => MessageBox.Show(this,
-                    $"{AppInfo.Name} is running from INSIDE the zip file (Windows put it in a temporary folder).\n\n" +
-                    "Updates cannot replace it there, so it will keep opening the old version.\n\n" +
-                    "Close it, right-click the zip → \"Extract All\", and run NetFinder.exe from the extracted folder (e.g. Desktop or C:\\Tools).",
+                BeginInvoke(() => Ui.Box(this,
+                    T($"{AppInfo.Name} is running from INSIDE the zip file (Windows put it in a temporary folder).\n\n" +
+                    $"Updates cannot replace it there, so it will keep opening the old version.\n\n" +
+                    $"Close it, right-click the zip → \"Extract All\", and run NetFinder.exe from the extracted folder (e.g. Desktop or C:\\Tools)."),
                     AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning));
         };
         FormClosing += OnClosing;
@@ -253,11 +254,11 @@ public sealed class MainForm : Form
             ApplyTheme();
         };
         _txtRange.Text = _settings.ScanRanges;
-        _txtRange.PlaceholderText = "auto (my subnet)";
+        _txtRange.PlaceholderText = T("auto (my subnet)");
         _txtRange.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await ScanAsync(startOver: true); } };
-        new ToolTip().SetToolTip(_txtRange, "Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*");
+        new ToolTip().SetToolTip(_txtRange, T("Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*"));
         _txtFilter.TextChanged += (_, _) => ApplyFilter();
-        _txtFilter.PlaceholderText = "Filter: IP, name, model…";
+        _txtFilter.PlaceholderText = T("Filter: IP, name, model…");
 
         foreach (var b in new ToolStripItem[] { _btnScan, _btnStop, _btnModels, _btnListen })
         {
@@ -282,13 +283,18 @@ public sealed class MainForm : Form
         });
         _btnModels.Click += async (_, _) => { if (_modelsCts != null) _modelsCts.Cancel(); else await GetModelsForAllAsync(); };
 
-        var clear = new ToolStripMenuItem("Clear the list");
+        var clear = new ToolStripMenuItem(T("Clear the list"));
         clear.Click += (_, _) => { _lastList = null; _engine.Store.Clear(); _engine.LearnedSubnets.Clear(); };
-        var settings = new ToolStripMenuItem("Settings…");
-        settings.Click += (_, _) => { using var f = new SettingsForm(_settings, _engine.Plugins); f.ShowDialog(this); };
-        var about = new ToolStripMenuItem("About / check for updates…");
+        var settings = new ToolStripMenuItem(T("Settings…"));
+        settings.Click += (_, _) =>
+        {
+            bool changed;
+            using (var f = new SettingsForm(_settings, _engine.Plugins)) changed = f.ShowDialog(this) == DialogResult.OK && f.LanguageChanged;
+            if (changed) AskRestartForLanguage();
+        };
+        var about = new ToolStripMenuItem(T("About / check for updates…"));
         about.Click += async (_, _) => { if (Dialogs.About(this)) await CheckForUpdatesAsync(manual: true); };
-        var watch = new ToolStripMenuItem("Watch devices…") { ToolTipText = "Ping chosen devices and tell me when one goes down or comes back" };
+        var watch = new ToolStripMenuItem(T("Watch devices…")) { ToolTipText = T("Ping chosen devices and tell me when one goes down or comes back") };
         watch.Click += (_, _) => PickWatched();
         _menu.DropDown.Renderer = _renderer;
         _menu.DropDownItems.AddRange(new ToolStripItem[] { watch, new ToolStripSeparator(), _chkDark, new ToolStripSeparator(), clear, settings, about });
@@ -297,7 +303,7 @@ public sealed class MainForm : Form
 
         _export.Padding = new Padding(S(12), S(6), S(12), S(6));
         _export.DropDown.Renderer = _renderer;
-        foreach (var (text, ext) in new[] { ("Excel workbook (.xlsx)", ".xlsx"), ("PDF report (.pdf)", ".pdf"), ("CSV – opens in Excel (.csv)", ".csv"), ("Web page (.html)", ".html") })
+        foreach (var (text, ext) in new[] { (T("Excel workbook (.xlsx)"), ".xlsx"), (T("PDF report (.pdf)"), ".pdf"), (T("CSV – opens in Excel (.csv)"), ".csv"), (T("Web page (.html)"), ".html") })
         {
             var item = new ToolStripMenuItem(text) { Font = Theme.Header, Padding = new Padding(0, S(3), 0, S(3)) };
             item.Click += (_, _) => Export(ext);
@@ -320,7 +326,7 @@ public sealed class MainForm : Form
     private void ShowListenText(bool compact, bool fit = false)
     {
         _listenCompact = compact;
-        _btnListen.Text = compact ? (_btnListen.Checked ? "●" : "○") : _btnListen.Checked ? "●  Listening" : "○  Not listening";
+        _btnListen.Text = compact ? (_btnListen.Checked ? "●" : "○") : _btnListen.Checked ? T("●  Listening") : T("○  Not listening");
         if (fit) FitHeader();
     }
 
@@ -340,8 +346,8 @@ public sealed class MainForm : Form
             int Room() => _tools.DisplayRectangle.Width - S(6) - _rangeHost.Margin.Horizontal - _tools.Items.Cast<ToolStripItem>()
                 .Where(i => i.Available && i != _rangeHost).Sum(i => i.GetPreferredSize(Size.Empty).Width + i.Margin.Horizontal);
             // start full, then give up the least useful text until the Range box fits at its smallest
-            _rangeLabel.Visible = true; _brand.Compact = false; _chkDeep.Text = "Deep scan"; ShowListenText(compact: false);
-            var steps = new Action[] { () => _rangeLabel.Visible = false, () => _brand.Compact = true, () => _chkDeep.Text = "Deep", () => ShowListenText(compact: true) };
+            _rangeLabel.Visible = true; _brand.Compact = false; _chkDeep.Text = T("Deep scan"); ShowListenText(compact: false);
+            var steps = new Action[] { () => _rangeLabel.Visible = false, () => _brand.Compact = true, () => _chkDeep.Text = T("Deep"), () => ShowListenText(compact: true) };
             foreach (var step in steps)
             {
                 if (Room() >= min) break;
@@ -357,20 +363,20 @@ public sealed class MainForm : Form
 
     private void BuildBanners()
     {
-        var install = new Button { Text = "Install Npcap", Dock = DockStyle.Right, Width = 120, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
+        var install = new Button { Text = T("Install Npcap"), Dock = DockStyle.Right, Width = 120, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
         install.FlatAppearance.BorderSize = 0;
         install.Click += async (_, _) => { await InstallNpcapAsync(t => install.Text = t, e => install.Enabled = e); ShowCaptureMode(); };
-        var hide = new LinkLabel { Text = "Hide", Dock = DockStyle.Right, Width = 50, TextAlign = ContentAlignment.MiddleCenter };
+        var hide = new LinkLabel { Text = T("Hide"), Dock = DockStyle.Right, Width = 50, TextAlign = ContentAlignment.MiddleCenter };
         hide.LinkClicked += (_, _) => _banner.Visible = false;
         _banner.Controls.Add(_bannerText);
         _banner.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8 });
         _banner.Controls.Add(install);
         _banner.Controls.Add(hide);
 
-        var updNow = new Button { Text = "Update now", Dock = DockStyle.Right, Width = 110, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
+        var updNow = new Button { Text = T("Update now"), Dock = DockStyle.Right, Width = 110, FlatStyle = FlatStyle.Flat, Font = Theme.Bold };
         updNow.FlatAppearance.BorderSize = 0;
         updNow.Click += async (_, _) => await InstallUpdateAsync(updNow);
-        var skip = new LinkLabel { Text = "Later", Dock = DockStyle.Right, Width = 60, TextAlign = ContentAlignment.MiddleCenter };
+        var skip = new LinkLabel { Text = T("Later"), Dock = DockStyle.Right, Width = 60, TextAlign = ContentAlignment.MiddleCenter };
         skip.LinkClicked += (_, _) => _updateBanner.Visible = false;
         _updateBanner.Controls.Add(_updateText);
         _updateBanner.Controls.Add(new Panel { Dock = DockStyle.Right, Width = 8 });
@@ -384,26 +390,26 @@ public sealed class MainForm : Form
     {
         _navHost.Width = F(220);
         _navHost.Padding = new Padding(0, 0, 1, 0);
-        _nav.Section("Devices");
-        _nav.Add("all", "All devices");
-        _nav.Add("pc", "Computers");
-        _nav.Add("server", "Servers & VMs");
-        _nav.Add("camera", "Cameras & NVR");
-        _nav.Add("printer", "Printers");
-        _nav.Add("network", "Network");
-        _nav.Add("storage", "Storage (NAS)");
-        _nav.Add("phone", "Phones & TV");
-        _nav.Add("other", "Other");
-        _nav.Section("Networks");
-        _nav.Add("net:mine", "My subnet").Sub = "";
-        _nav.Add("net:routed", "Behind a router").Hidden = true;
-        _nav.Add("net:other", "Other subnets").Sub = "found by listening";
-        _nav.Section("Checks");
-        _nav.Add("watch", "Watched").Sub = "pick devices…";
-        _nav.Add("risky", "Risky ports");
+        _nav.Section(T("Devices"));
+        _nav.Add("all", T("All devices"));
+        _nav.Add("pc", T("Computers"));
+        _nav.Add("server", T("Servers & VMs"));
+        _nav.Add("camera", T("Cameras & NVR"));
+        _nav.Add("printer", T("Printers"));
+        _nav.Add("network", T("Network"));
+        _nav.Add("storage", T("Storage (NAS)"));
+        _nav.Add("phone", T("Phones & TV"));
+        _nav.Add("other", T("Other"));
+        _nav.Section(T("Networks"));
+        _nav.Add("net:mine", T("My subnet")).Sub = "";
+        _nav.Add("net:routed", T("Behind a router")).Hidden = true;
+        _nav.Add("net:other", T("Other subnets")).Sub = T("found by listening");
+        _nav.Section(T("Checks"));
+        _nav.Add("watch", T("Watched")).Sub = T("pick devices…");
+        _nav.Add("risky", T("Risky ports"));
         _nav.SelectedChanged += key =>
         {
-            _title.Text = key switch { "all" => "All devices", "watch" => "Watched devices", "risky" => "Devices with risky ports", _ => _nav.TextOf(key) };
+            _title.Text = key switch { "all" => T("All devices"), "watch" => T("Watched devices"), "risky" => T("Devices with risky ports"), _ => _nav.TextOf(key) };
             _watchPick.Visible = key == "watch";
             ApplyFilter();
             if (key == "watch" && _watchList.Count == 0) BeginInvoke(PickWatched);
@@ -413,7 +419,7 @@ public sealed class MainForm : Form
         _navBottom.Padding = new Padding(S(12), S(8), S(12), S(14));
         _adapterLabel.Margin = new Padding(S(10), 0, 0, S(6));
         _cmbAdapter.Width = w;
-        new ToolTip().SetToolTip(_cmbAdapter, "Which network card to scan. All connected adapters = every real one (not the virtual ones of Hyper-V / VMware).");
+        new ToolTip().SetToolTip(_cmbAdapter, T("Which network card to scan. All connected adapters = every real one (not the virtual ones of Hyper-V / VMware)."));
         _cmbAdapter.Margin = new Padding(0, 0, 0, S(12));
         _npcapCard.Width = w;
         _npcapCard.Margin = new Padding(0);
@@ -466,31 +472,31 @@ public sealed class MainForm : Form
             _grid.Columns.Add(c);
             return c;
         }
-        Col("Type", "Type", 160);
-        var watchCol = Col("Watch", "Watch", 122);
+        Col("Type", T("Type"), 160);
+        var watchCol = Col("Watch", T("Watch"), 122);
         watchCol.Visible = false;
-        watchCol.ToolTipText = "Ping result of the watched devices (☰ menu → Watch devices…)";
-        Col("Ip", "IP address", 124).DefaultCellStyle.Font = Theme.Mono;
-        Col("Name", "Name", 140);
-        Col("Model", "Model", 180).DefaultCellStyle.Font = Theme.Bold;
+        watchCol.ToolTipText = T("Ping result of the watched devices (☰ menu → Watch devices…)");
+        Col("Ip", T("IP address"), 124).DefaultCellStyle.Font = Theme.Mono;
+        Col("Name", T("Name"), 140);
+        Col("Model", T("Model"), 180).DefaultCellStyle.Font = Theme.Bold;
         // shown once a printer told its toner levels / a switch told its ports (SNMP)
-        var inkCol = Col("Ink", "Ink / toner", 200);
+        var inkCol = Col("Ink", T("Ink / toner"), 200);
         inkCol.Visible = false;
-        inkCol.ToolTipText = "Toner or ink left in each printer (read over SNMP)";
-        var portCol = Col("SwPort", "Switch port", 170);
+        inkCol.ToolTipText = T("Toner or ink left in each printer (read over SNMP)");
+        var portCol = Col("SwPort", T("Switch port"), 170);
         portCol.Visible = false;
-        portCol.ToolTipText = "The switch and port each device is plugged into (read from the switches over SNMP)";
-        Col("Vendor", "Vendor", 105);
+        portCol.ToolTipText = T("The switch and port each device is plugged into (read from the switches over SNMP)");
+        Col("Vendor", T("Vendor"), 105);
         _grid.Columns.Add(new DataGridViewLinkColumn
         {
-            Name = "Open", HeaderText = "Open", Width = F(100), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
-            LinkBehavior = LinkBehavior.HoverUnderline, ToolTipText = "Click to open the device (web page, Remote Desktop, SSH… whatever it has open)",
+            Name = "Open", HeaderText = T("Open"), Width = F(100), SortMode = DataGridViewColumnSortMode.Automatic, TrackVisitedState = false,
+            LinkBehavior = LinkBehavior.HoverUnderline, ToolTipText = T("Click to open the device (web page, Remote Desktop, SSH… whatever it has open)"),
         });
-        Col("Mac", "MAC", 135).DefaultCellStyle.Font = Theme.Mono;
-        Col("Net", "Network", 150);
-        Col("Ports", "Open ports", 130);
-        Col("Via", "Found via", 140);
-        Col("Seen", "Last seen", 80);
+        Col("Mac", T("MAC"), 135).DefaultCellStyle.Font = Theme.Mono;
+        Col("Net", T("Network"), 150);
+        Col("Ports", T("Open ports"), 130);
+        Col("Via", T("Found via"), 140);
+        Col("Seen", T("Last seen"), 80);
 
         _grid.SortCompare += (_, e) =>
         {
@@ -552,7 +558,7 @@ public sealed class MainForm : Form
             var r = new Rectangle(e.CellBounds.X + S(10), e.CellBounds.Y + (e.CellBounds.Height - size) / 2, size, size);
             Theme.DrawTypeTile(g, r, type, back);
             var textRect = new Rectangle(r.Right + S(10), e.CellBounds.Y, Math.Max(0, e.CellBounds.Right - r.Right - S(14)), e.CellBounds.Height);
-            TextRenderer.DrawText(g, type, Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line);
+            TextRenderer.DrawText(g, T(type), Theme.Base, textRect, type == DeviceTypes.Unknown ? P.Muted : P.Text, Ui.Line | (Rtl ? TextFormatFlags.Right | TextFormatFlags.RightToLeft : 0));
             e.Handled = true;
         }
         else if (name == "Ink" && _grid.Rows[e.RowIndex].Tag is Device { Printer: { Supplies.Count: > 0 } pst })
@@ -564,8 +570,9 @@ public sealed class MainForm : Form
         else if (name == "Watch" && e.FormattedValue?.ToString() is { Length: > 0 } watch)
         {
             e.PaintBackground(e.CellBounds, selected);
-            var down = watch.StartsWith("Down");
-            var up = watch.StartsWith("Up");
+            var health = _grid.Rows[e.RowIndex].Tag is Device wd ? WatchHealth(wd) : Health.Unknown;
+            var down = health == Health.Down;
+            var up = health == Health.Up;
             var text = "●  " + watch;
             var tw = TextRenderer.MeasureText(g, text, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
             var chip = new Rectangle(e.CellBounds.X + S(6), e.CellBounds.Y + (e.CellBounds.Height - S(24)) / 2, Math.Min(tw + S(20), e.CellBounds.Width - S(10)), S(24));
@@ -579,7 +586,7 @@ public sealed class MainForm : Form
             lock (d) status = d.Info.GetValueOrDefault("Windows status");
             if (status == null) return;
             e.PaintBackground(e.CellBounds, selected);
-            var text = "⚠  " + status;
+            var text = "⚠  " + T(status);
             var tw = TextRenderer.MeasureText(g, text, Theme.Bold, Size.Empty, TextFormatFlags.NoPadding).Width;
             var chip = new Rectangle(e.CellBounds.X + S(6), e.CellBounds.Y + (e.CellBounds.Height - S(24)) / 2, Math.Min(tw + S(20), e.CellBounds.Width - S(10)), S(24));
             Ui.FillRound(g, chip, S(12), P.WarnSoft);
@@ -592,21 +599,21 @@ public sealed class MainForm : Form
     {
         var m = new ContextMenuStrip { Renderer = _renderer };
         var icons = Theme.P.Surface;
-        var open = new ToolStripMenuItem("Open") { Font = Theme.Bold, ToolTipText = "Web page, Remote Desktop, SSH… whatever the device has open" };
+        var open = new ToolStripMenuItem(T("Open")) { Font = Theme.Bold, ToolTipText = T("Web page, Remote Desktop, SSH… whatever the device has open") };
         open.Click += (_, _) => OpenPrimary(SelectedDevice());
         m.Items.Add(open);
-        m.Items.Add("Open in browser (http)", null, (_, _) => OpenWeb(SelectedDevice(), "http"));
-        m.Items.Add("Open in browser (https)", null, (_, _) => OpenWeb(SelectedDevice(), "https"));
+        m.Items.Add(T("Open in browser (http)"), null, (_, _) => OpenWeb(SelectedDevice(), "http"));
+        m.Items.Add(T("Open in browser (https)"), null, (_, _) => OpenWeb(SelectedDevice(), "https"));
         m.Items.Add("SSH", null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", "SSH", () => Launcher.Ssh(ip.ToString()))); });
-        m.Items.Add("Telnet", null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", "Telnet", () => Launcher.Telnet(ip.ToString()))); });
+        m.Items.Add(T("Telnet"), null, async (_, _) => { if (SelectedDevice() is { Ip: { } ip } d) await RunAction(d, new DeviceAction("Remote", T("Telnet"), () => Launcher.Telnet(ip.ToString()))); });
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Show cameras (NVR / DVR)…", Theme.TypeIcon(DeviceTypes.Nvr, 16, icons), (_, _) => ShowCameras(SelectedDevice()));
-        m.Items.Add("Make reachable (add temporary IP)", null, async (_, _) => { if (SelectedDevice() is { } d) await MakeReachableAsync(d); });
-        m.Items.Add("Check open ports", null, async (_, _) => { if (SelectedDevice() is { } d) await CheckPortsAsync(d, force: true); });
-        var watchThis = new ToolStripMenuItem("Watch this device") { ToolTipText = "Ping it and tell me when it goes down or comes back" };
+        m.Items.Add(T("Show cameras (NVR / DVR)…"), Theme.TypeIcon(DeviceTypes.Nvr, 16, icons), (_, _) => ShowCameras(SelectedDevice()));
+        m.Items.Add(T("Make reachable (add temporary IP)"), null, async (_, _) => { if (SelectedDevice() is { } d) await MakeReachableAsync(d); });
+        m.Items.Add(T("Check open ports"), null, async (_, _) => { if (SelectedDevice() is { } d) await CheckPortsAsync(d, force: true); });
+        var watchThis = new ToolStripMenuItem(T("Watch this device")) { ToolTipText = T("Ping it and tell me when it goes down or comes back") };
         watchThis.Click += (_, _) => { if (SelectedDevice() is { } d) ToggleWatch(d); };
         m.Items.Add(watchThis);
-        m.Items.Add("Watch devices…", null, (_, _) => PickWatched());
+        m.Items.Add(T("Watch devices…"), null, (_, _) => PickWatched());
         m.Opening += (_, _) =>
         {
             var d = SelectedDevice();
@@ -615,23 +622,23 @@ public sealed class MainForm : Form
             watchThis.Enabled = ip != null;
             watchThis.Checked = _watcher.Get(ip) != null;
         };
-        m.Items.Add("Get model", null, async (_, _) => { if (SelectedDevice() is { } d) await GetModelAsync(d); });
-        m.Items.Add("Read ink levels / switch ports (SNMP)", null, async (_, _) => { if (SelectedDevice() is { } d) await ReadSnmpAsync(d); });
-        m.Items.Add("Get model with Windows login…", null, async (_, _) => { if (SelectedDevice() is { } d) await GetWindowsModelAsync(d, askLogin: true); });
+        m.Items.Add(T("Get model"), null, async (_, _) => { if (SelectedDevice() is { } d) await GetModelAsync(d); });
+        m.Items.Add(T("Read ink levels / switch ports (SNMP)"), null, async (_, _) => { if (SelectedDevice() is { } d) await ReadSnmpAsync(d); });
+        m.Items.Add(T("Get model with Windows login…"), null, async (_, _) => { if (SelectedDevice() is { } d) await GetWindowsModelAsync(d, askLogin: true); });
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Copy IP", null, (_, _) => { if (SelectedDevice()?.Ip is { } ip) Clipboard.SetText(ip.ToString()); });
-        m.Items.Add("Copy MAC", null, (_, _) => { if (SelectedDevice() is { Mac.Length: > 0 } d) Clipboard.SetText(d.Mac); });
+        m.Items.Add(T("Copy IP"), null, (_, _) => { if (SelectedDevice()?.Ip is { } ip) Clipboard.SetText(ip.ToString()); });
+        m.Items.Add(T("Copy MAC"), null, (_, _) => { if (SelectedDevice() is { Mac.Length: > 0 } d) Clipboard.SetText(d.Mac); });
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Rename…", null, (_, _) => Rename(SelectedDevice()));
-        var setType = new ToolStripMenuItem("Set type");
+        m.Items.Add(T("Rename…"), null, (_, _) => Rename(SelectedDevice()));
+        var setType = new ToolStripMenuItem(T("Set type"));
         setType.DropDown.Renderer = _renderer;
-        setType.DropDownItems.Add("Automatic (detect)", null, (_, _) => SetType(SelectedDevice(), null));
+        setType.DropDownItems.Add(T("Automatic (detect)"), null, (_, _) => SetType(SelectedDevice(), null));
         setType.DropDownItems.Add(new ToolStripSeparator());
         foreach (var t in DeviceTypes.All.Where(t => t != DeviceTypes.Unknown))
-            setType.DropDownItems.Add(t, Theme.TypeIcon(t, 16, icons), (_, _) => SetType(SelectedDevice(), t));
+            setType.DropDownItems.Add(T(t), Theme.TypeIcon(t, 16, icons), (_, _) => SetType(SelectedDevice(), t));
         m.Items.Add(setType);
         m.Items.Add(new ToolStripSeparator());
-        m.Items.Add("Remove from list", null, (_, _) => { if (SelectedDevice() is { } d) _engine.Store.Remove(d); });
+        m.Items.Add(T("Remove from list"), null, (_, _) => { if (SelectedDevice() is { } d) _engine.Store.Remove(d); });
         return m;
     }
 
@@ -1107,7 +1114,7 @@ public sealed class MainForm : Form
         _engine.LoadAdapters();
         if (_demo) { _engine.Adapters.Clear(); _engine.Adapters.Add(Core.Demo.DemoNetwork.Adapter()); }
         _cmbAdapter.Items.Clear();
-        _cmbAdapter.Items.Add("All connected adapters");
+        _cmbAdapter.Items.Add(T("All connected adapters"));
         foreach (var a in _engine.Adapters) _cmbAdapter.Items.Add(a);
         _cmbAdapter.SelectedIndex = 0;
         ShowMySubnets();
@@ -1119,7 +1126,7 @@ public sealed class MainForm : Form
             _lastScan = DateTime.Today.AddHours(21).AddMinutes(11);
             ShowCaptureMode();
             _btnListen.Checked = true; // shows "Listening"; nothing is captured in demo mode
-            _stState.Text = "Scan finished. Still listening for new devices…";
+            _stState.Text = T("Scan finished. Still listening for new devices…");
             return;
         }
 
@@ -1128,11 +1135,11 @@ public sealed class MainForm : Form
         _engine.Log($"Npcap installed: {hasNpcap}; capture: {(_engine.CaptureAvailable ? _engine.CaptureDriver : "none")}");
         if (!_engine.CaptureAvailable)
         {
-            ShowNpcapBanner("Npcap is not installed. Devices on YOUR subnet are found with Windows ARP + ping, but devices on OTHER ranges (e.g. a camera still on 192.168.1.x) need Npcap. It is free; one click installs it.");
+            ShowNpcapBanner(T("Npcap is not installed. Devices on YOUR subnet are found with Windows ARP + ping, but devices on OTHER ranges (e.g. a camera still on 192.168.1.x) need Npcap. It is free; one click installs it."));
             _chkDeep.Enabled = false;
         }
         else if (!hasNpcap)
-            ShowNpcapBanner($"Old capture driver found ({_engine.CaptureDriver}). It does not work well on Wi-Fi and misses devices. Install Npcap to replace it.");
+            ShowNpcapBanner(T($"Old capture driver found ({_engine.CaptureDriver}). It does not work well on Wi-Fi and misses devices. Install Npcap to replace it."));
 
         if (_justUpdated) _engine.Log($"Updated to version {AppInfo.Version}");
         _btnListen.Checked = true; // starts listening (Npcap, or raw socket without it)
@@ -1148,26 +1155,26 @@ public sealed class MainForm : Form
     private void ShowCaptureMode()
     {
         var hasNpcap = Core.Net.WindowsNet.NpcapInstalled || _engine.CaptureDriver?.StartsWith("Npcap", StringComparison.OrdinalIgnoreCase) == true;
-        if (_demo) { _npcapCard.Tone = InfoCard.Kind.Good; _npcapCard.Title = "Full mode · Npcap 1.80"; _npcapCard.Body = "Sees devices on any subnet."; }
+        if (_demo) { _npcapCard.Tone = InfoCard.Kind.Good; _npcapCard.Title = T("Full mode · Npcap 1.80"); _npcapCard.Body = T("Sees devices on any subnet."); }
         else if (!_engine.CaptureAvailable)
         {
             _npcapCard.Tone = InfoCard.Kind.Warn;
-            _npcapCard.Title = "Basic mode (no Npcap)";
-            _npcapCard.Body = "Finds devices on your own subnet only. Click here to install Npcap (free) and see every subnet.";
+            _npcapCard.Title = T("Basic mode (no Npcap)");
+            _npcapCard.Body = T("Finds devices on your own subnet only. Click here to install Npcap (free) and see every subnet.");
         }
         else if (!hasNpcap)
         {
             _npcapCard.Tone = InfoCard.Kind.Warn;
-            _npcapCard.Title = $"Limited mode ({_engine.CaptureDriver})";
-            _npcapCard.Body = "Old capture driver: it misses devices, mostly on Wi-Fi. Click here to install Npcap.";
+            _npcapCard.Title = T($"Limited mode ({_engine.CaptureDriver})");
+            _npcapCard.Body = T("Old capture driver: it misses devices, mostly on Wi-Fi. Click here to install Npcap.");
         }
         else
         {
             _npcapCard.Tone = InfoCard.Kind.Good;
-            _npcapCard.Title = $"Full mode · {_engine.CaptureDriver}";
-            _npcapCard.Body = "Sees devices on any subnet.";
+            _npcapCard.Title = T($"Full mode · {_engine.CaptureDriver}");
+            _npcapCard.Body = T("Sees devices on any subnet.");
         }
-        new ToolTip().SetToolTip(_npcapCard, "Npcap lets the program see devices on OTHER IP ranges. Click to install or reinstall it.");
+        new ToolTip().SetToolTip(_npcapCard, T("Npcap lets the program see devices on OTHER IP ranges. Click to install or reinstall it."));
     }
 
     /// <summary>"10.0.0.0/16 · Ethernet" under "My subnet" in the side menu.</summary>
@@ -1175,7 +1182,7 @@ public sealed class MainForm : Form
     {
         var nets = _engine.Adapters.Where(a => a.IsUp && !a.IsHostOnlyVirtual)
             .SelectMany(a => a.Addresses.Select(x => $"{x.Subnet} · {a.FriendlyName}")).Distinct().ToList();
-        if (_nav.Find("net:mine") is { } mine) mine.Sub = nets.Count == 0 ? "no IP address" : nets.Count == 1 ? nets[0] : $"{nets[0]} +{nets.Count - 1}";
+        if (_nav.Find("net:mine") is { } mine) mine.Sub = nets.Count == 0 ? T("no IP address") : nets.Count == 1 ? nets[0] : $"{nets[0]} +{nets.Count - 1}";
         _nav.Invalidate();
     }
 
@@ -1199,7 +1206,7 @@ public sealed class MainForm : Form
     {
         var hasNpcap = Core.Net.WindowsNet.NpcapInstalled || _engine.CaptureDriver?.StartsWith("Npcap", StringComparison.OrdinalIgnoreCase) == true;
         if (hasNpcap &&
-            MessageBox.Show(this, $"Npcap is installed ({_engine.CaptureDriver ?? "driver not loaded"}).\n\nDownload and reinstall the latest Npcap anyway?",
+            Ui.Box(this, T($"Npcap is installed ({_engine.CaptureDriver ?? T("driver not loaded")}).\n\nDownload and reinstall the latest Npcap anyway?"),
                 AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
         await InstallNpcapAsync(t => _npcapCard.Title = t, e => _npcapCard.Enabled = e);
         if (!IsDisposed) ShowCaptureMode();
@@ -1212,16 +1219,16 @@ public sealed class MainForm : Form
         {
             // 1) an installer the user already downloaded?
             string? installer = NpcapInstaller.FindLocalInstaller();
-            if (installer != null && MessageBox.Show(this,
-                    $"Found the Npcap installer {Path.GetFileName(installer)} in\n{Path.GetDirectoryName(installer)}\n\nInstall it?",
+            if (installer != null && Ui.Box(this,
+                    T($"Found the Npcap installer {Path.GetFileName(installer)} in\n{Path.GetDirectoryName(installer)}\n\nInstall it?"),
                     AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 installer = null;
 
             // 2) download it from npcap.com / nmap.org
             if (installer == null)
             {
-                setText("Downloading…");
-                try { installer = await NpcapInstaller.DownloadAsync(new Progress<int>(p => setText($"Downloading {p}%")), _lifetime.Token); }
+                setText(T("Downloading…"));
+                try { installer = await NpcapInstaller.DownloadAsync(new Progress<int>(p => setText(T($"Downloading {p}%"))), _lifetime.Token); }
                 catch (NpcapInstaller.UnreachableException ex)
                 {
                     _engine.Log("Npcap download failed: " + ex.Message.Replace('\n', ' '));
@@ -1231,27 +1238,27 @@ public sealed class MainForm : Form
                 }
             }
 
-            setText("Installing…");
+            setText(T("Installing…"));
             await NpcapInstaller.RunInstallerAsync(installer, _lifetime.Token);
             if (Core.Net.WindowsNet.NpcapInstalled)
             {
-                MessageBox.Show(this, $"Npcap is installed. {AppInfo.Name} will restart to use it.", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Ui.Box(this, T($"Npcap is installed. {AppInfo.Name} will restart to use it."), AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 RestartApp();
                 return;
             }
-            MessageBox.Show(this, "Npcap was not installed (the setup was closed or failed).", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Ui.Box(this, T("Npcap was not installed (the setup was closed or failed)."), AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             _engine.Log("Npcap install failed: " + ex.Message);
-            MessageBox.Show(this, "Npcap could not be installed:\n\n" + ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Ui.Box(this, T("Npcap could not be installed:\n\n") + ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
             if (!IsDisposed)
             {
-                setText(Core.Net.WindowsNet.NpcapInstalled ? "Npcap ✓" : "Install Npcap");
+                setText(Core.Net.WindowsNet.NpcapInstalled ? T("Npcap ✓") : T("Install Npcap"));
                 setEnabled(true);
             }
         }
@@ -1260,27 +1267,27 @@ public sealed class MainForm : Form
     /// <summary>Shown when npcap.com can't be reached. Returns a chosen installer file, or null.</summary>
     private string? AskForNpcapInstaller(string technical)
     {
-        var choose = new TaskDialogButton("Choose installer file…");
-        var open = new TaskDialogButton("Open npcap.com in browser");
+        var choose = new TaskDialogButton(T("Choose installer file…"));
+        var open = new TaskDialogButton(T("Open npcap.com in browser"));
         var page = new TaskDialogPage
         {
             Caption = AppInfo.Name,
             Icon = TaskDialogIcon.Warning,
-            Heading = "This PC can't reach the Npcap website",
-            Text = "npcap.com and nmap.org could not be reached: there is no internet, or the site is blocked on this network.\n\n" +
-                   "Download the Npcap installer on another PC or phone from npcap.com (a file like npcap-1.80.exe), " +
-                   "copy it to this PC (e.g. with a USB stick), then press \"Choose installer file…\".\n\n" +
-                   $"Tip: if you put it in your Downloads folder, {AppInfo.Name} finds it by itself next time.",
+            Heading = T("This PC can't reach the Npcap website"),
+            Text = T($"npcap.com and nmap.org could not be reached: there is no internet, or the site is blocked on this network.\n\n" +
+                   $"Download the Npcap installer on another PC or phone from npcap.com (a file like npcap-1.80.exe), " +
+                   $"copy it to this PC (e.g. with a USB stick), then press \"Choose installer file…\".\n\n" +
+                   $"Tip: if you put it in your Downloads folder, {AppInfo.Name} finds it by itself next time."),
             Buttons = { choose, open, TaskDialogButton.Cancel },
-            Expander = new TaskDialogExpander(technical) { CollapsedButtonText = "Technical details" },
+            Expander = new TaskDialogExpander(technical) { CollapsedButtonText = T("Technical details") },
         };
         var result = TaskDialog.ShowDialog(this, page);
         if (result == open) { Core.Actions.Launcher.Open(NpcapInstaller.DownloadPage); return null; }
         if (result != choose) return null;
         using var dlg = new OpenFileDialog
         {
-            Title = "Choose the Npcap installer",
-            Filter = "Npcap installer (npcap-*.exe)|npcap*.exe|Programs (*.exe)|*.exe",
+            Title = T("Choose the Npcap installer"),
+            Filter = T("Npcap installer (npcap-*.exe)|npcap*.exe|Programs (*.exe)|*.exe"),
             InitialDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
         };
         return dlg.ShowDialog(this) == DialogResult.OK ? dlg.FileName : null;
@@ -1299,7 +1306,7 @@ public sealed class MainForm : Form
     {
         if (!UpdateChecker.Enabled)
         {
-            if (manual) MessageBox.Show(this, "No update source is set yet (Settings → Update source).", AppInfo.Name);
+            if (manual) Ui.Box(this, T("No update source is set yet (Settings → Update source)."), AppInfo.Name);
             return;
         }
         try
@@ -1307,19 +1314,19 @@ public sealed class MainForm : Form
             var info = await UpdateChecker.CheckAsync(_lifetime.Token);
             if (info == null)
             {
-                if (manual) MessageBox.Show(this, $"You have the latest version ({AppInfo.Version}).", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (manual) Ui.Box(this, T($"You have the latest version ({AppInfo.Version})."), AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             _update = info;
             var summary = Changelog.OneLine(info.Notes);
-            _updateText.Text = $"New version {info.Version} is available (you have {AppInfo.Version})" +
+            _updateText.Text = T($"New version {info.Version} is available (you have {AppInfo.Version})") +
                 (summary.Length > 0 ? ":  " + summary : ".") +
-                (RunningFromZip() ? "  –  extract the zip first, updates can't work from inside it" : "");
+                (RunningFromZip() ? T("  –  extract the zip first, updates can't work from inside it") : "");
             _updateBanner.Visible = true;
         }
         catch (Exception ex)
         {
-            if (manual) MessageBox.Show(this, "Could not check for updates: " + ex.Message, AppInfo.Name);
+            if (manual) Ui.Box(this, T("Could not check for updates: ") + ex.Message, AppInfo.Name);
         }
     }
 
@@ -1334,10 +1341,10 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            btn.Text = "Update now";
+            btn.Text = T("Update now");
             btn.Enabled = true;
             UpdateChecker.Log("FAILED: " + ex);
-            MessageBox.Show(this, "Update failed: " + ex.Message + "\n\nDetails: " + UpdateChecker.LogPath + "\n\nThe download page will open.", AppInfo.Name);
+            Ui.Box(this, T("Update failed: ") + ex.Message + T("\n\nDetails: ") + UpdateChecker.LogPath + T("\n\nThe download page will open."), AppInfo.Name);
             Core.Actions.Launcher.Open(_update.PageUrl);
         }
     }
@@ -1370,7 +1377,7 @@ public sealed class MainForm : Form
                 else _engine.StopListening();
             }
             ShowListenText();
-            _stState.Text = on ? "Listening for devices…" : "Not listening";
+            _stState.Text = on ? T("Listening for devices…") : T("Not listening");
             UpdateSummary();
         }
         catch (Exception ex)
@@ -1391,7 +1398,7 @@ public sealed class MainForm : Form
         var rangeText = _txtRange.Text.Trim();
         if (!IpRange.TryParseList(rangeText, out _, out var err))
         {
-            MessageBox.Show(this, err, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Ui.Box(this, err, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         if (rangeText != _settings.ScanRanges) { _settings.ScanRanges = rangeText; _settings.Save(); }
@@ -1408,15 +1415,15 @@ public sealed class MainForm : Form
             if (startOver && _lastList != null)
             {
                 var gone = Gone();
-                _engine.Log($"New scan done: {_engine.Store.Count} device(s) answered" + (gone.Count == 0 ? ", all of the last list too" :
-                    $"; {gone.Count} of the last list did not answer and are no longer listed: {string.Join(", ", gone.OrderBy(IpKey).Take(20))}{(gone.Count > 20 ? "…" : "")}"));
+                _engine.Log($"New scan done: {_engine.Store.Count} device(s) answered" + (gone.Count == 0 ? T(", all of the last list too") :
+                    T($"; {gone.Count} of the last list did not answer and are no longer listed: {string.Join(", ", gone.OrderBy(IpKey).Take(20))}{(gone.Count > 20 ? "…" : "")}")));
             }
-            _stState.Text = $"Scan finished at {DateTime.Now:HH:mm:ss}." + (_engine.Listening ? " Still listening for new devices…" : "");
+            _stState.Text = T($"Scan finished at {DateTime.Now:HH:mm:ss}.") + (_engine.Listening ? T(" Still listening for new devices…") : "");
             _lastScan = DateTime.Now;
             _stExport.Visible = true;
         }
-        catch (OperationCanceledException) { _stState.Text = "Scan stopped."; }
-        catch (Exception ex) { _stState.Text = "Scan failed: " + ex.Message; }
+        catch (OperationCanceledException) { _stState.Text = T("Scan stopped."); }
+        catch (Exception ex) { _stState.Text = T("Scan failed: ") + ex.Message; }
         finally
         {
             _scanCts.Dispose(); _scanCts = null;
@@ -1595,16 +1602,16 @@ public sealed class MainForm : Form
             };
         }
         if (_nav.Find("net:routed") is { } rt) rt.Hidden = routed == 0 && _nav.SelectedKey != "net:routed";
-        if (_nav.Find("net:other") is { } ot) ot.Sub = _engine.CaptureAvailable || _demo ? "found by listening" : "needs Npcap to see them";
+        if (_nav.Find("net:other") is { } ot) ot.Sub = _engine.CaptureAvailable || _demo ? T("found by listening") : T("needs Npcap to see them");
         if (_nav.Find("watch") is { } wt)
         {
             var states = _watcher.States.Select(x => { lock (x) return x.Health; }).ToList();
             var down = states.Count(h => h == Health.Down);
-            wt.Sub = _watchList.Count == 0 ? "pick devices…" : down > 0 ? $"{down} down" : states.Any(h => h == Health.Unknown) ? "checking…" : $"all up · every {Dialogs.EveryText(_settings.WatchSeconds)}";
+            wt.Sub = _watchList.Count == 0 ? T("pick devices…") : down > 0 ? T($"{down} down") : states.Any(h => h == Health.Unknown) ? T("checking…") : T($"all up · every {Dialogs.EveryText(_settings.WatchSeconds)}");
             wt.SubBad = down > 0;
         }
         _nav.Invalidate();
-        _stCount.Text = $"{total} devices  ·  {mine} my subnet  ·  {other} other subnets" + (routed > 0 ? $"  ·  {routed} routed" : "");
+        _stCount.Text = T($"{total} devices  ·  {mine} my subnet  ·  {other} other subnets") + (routed > 0 ? T($"  ·  {routed} routed") : "");
         UpdateSummary();
     }
 
@@ -1613,15 +1620,15 @@ public sealed class MainForm : Form
     {
         var shown = _rows.Values.Count(r => r.Visible);
         var all = _nav.SelectedKey == "all" && _txtFilter.Text.Trim().Length == 0;
-        var parts = new List<string> { !all ? $"{shown} shown" : _scanCts != null && _startedEmpty ? $"{shown} answered so far" : $"{shown} found" };
-        if (_scanCts != null) parts.Add(_startedEmpty ? "new scan: the list started empty, scanning…" : "scanning…");
+        var parts = new List<string> { !all ? T($"{shown} shown") : _scanCts != null && _startedEmpty ? T($"{shown} answered so far") : T($"{shown} found") };
+        if (_scanCts != null) parts.Add(_startedEmpty ? T("new scan: the list started empty, scanning…") : T("scanning…"));
         else if (_lastScan is { } t)
         {
-            parts.Add($"scan finished {t:HH:mm}");
+            parts.Add(T($"scan finished {t:HH:mm}"));
             var gone = Gone().Count;
-            if (gone > 0) parts.Add($"{gone} of the last list did not answer");
+            if (gone > 0) parts.Add(T($"{gone} of the last list did not answer"));
         }
-        if (_btnListen.Checked) parts.Add("still listening for new devices");
+        if (_btnListen.Checked) parts.Add(T("still listening for new devices"));
         _summary.Text = string.Join("  ·  ", parts);
     }
 
@@ -1666,27 +1673,27 @@ public sealed class MainForm : Form
         lock (d)
         {
             row.Cells["Type"].Value = d.IsSelf ? Theme.ThisPc : d.EffectiveType;
-            row.Cells["Ip"].Value = d.Ip?.ToString() ?? "(unknown)";
-            row.Cells["Open"].Value = PrimaryFor(d)?.Label ?? "";
+            row.Cells["Ip"].Value = d.Ip?.ToString() ?? T("(unknown)");
+            row.Cells["Open"].Value = T(PrimaryFor(d)?.Label ?? "");
             row.Cells["Name"].Value = d.DisplayName.Length == 0 || d.DisplayName == d.Model ? "–" : d.DisplayName;
             row.Cells["Model"].Value = d.Model ?? "";
-            row.Cells["Model"].ToolTipText = d.ModelSource != null ? "Model from " + d.ModelSource : d.Info.GetValueOrDefault("Windows status") ?? "";
+            row.Cells["Model"].ToolTipText = d.ModelSource != null ? T("Model from ") + d.ModelSource : T(d.Info.GetValueOrDefault("Windows status"));
             row.Cells["Vendor"].Value = ShortVendor(d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor);
             row.Cells["Vendor"].ToolTipText = d.Vendor ?? "";
             row.Cells["Mac"].Value = d.Mac.Length > 0 ? d.Mac : "—";
             row.Cells["Net"].Value = NetText(d);
-            var ports = d.PortsCheckedAt == null ? (d.OpenPorts.Count > 0 ? string.Join(", ", d.OpenPorts) : "") : d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts);
+            var ports = d.PortsCheckedAt == null ? (d.OpenPorts.Count > 0 ? string.Join(", ", d.OpenPorts) : "") : d.OpenPorts.Count == 0 ? T("none") : string.Join(", ", d.OpenPorts);
             var risky = PortRisk.Risky(d.OpenPorts);
             row.Cells["Ports"].Value = risky.Count > 0 ? "⚠ " + ports : ports;
             row.Cells["Ports"].Style.ForeColor = risky.Count > 0 ? P.Bad : Color.Empty;
             row.Cells["Ports"].Style.Font = risky.Count > 0 ? Theme.Bold : null;
-            row.Cells["Ports"].ToolTipText = string.Join("\n", risky.Select(f => $"{f.Port} {f.Service}: {f.Advice}"));
+            row.Cells["Ports"].ToolTipText = string.Join("\n", risky.Select(f => $"{f.Port} {T(f.Service)}: {T(f.Advice)}"));
             row.Cells["Watch"].Value = WatchText(d.Ip?.ToString());
             var pr = d.Printer;
-            row.Cells["Ink"].Value = pr == null ? "" : string.Join(" · ", Ink.Shown(pr).Select(x => x.Text));
+            row.Cells["Ink"].Value = pr == null ? "" : string.Join(" · ", Ink.Shown(pr).Select(Ink.Text));
             row.Cells["Ink"].ToolTipText = pr == null ? "" : string.Join("\n", pr.Supplies.Select(x => x.Text + (x.Detail != null ? $"  ({x.Detail})" : ""))) +
-                (pr.Pages is { } pages ? $"\n{pages:N0} pages printed" : "") + (pr.Status != null ? $"\nStatus: {pr.Status}" : "");
-            row.Cells["SwPort"].Value = d.Info.GetValueOrDefault(PortMap.PortKey) ?? "";
+                (pr.Pages is { } pages ? T($"\n{pages:N0} pages printed") : "") + (pr.Status != null ? T($"\nStatus: {T(pr.Status)}") : "");
+            row.Cells["SwPort"].Value = SpotText(d.Info.GetValueOrDefault(PortMap.PortKey));
             if (pr is { Supplies.Count: > 0 }) _showInk = true;
             if (d.Switch != null) _haveSwitches = true;
             if (d.Info.ContainsKey(PortMap.PortKey)) _showPorts = true;
@@ -1735,12 +1742,12 @@ public sealed class MainForm : Form
 
     private async Task CheckPortsAsync(Device d, bool force)
     {
-        if (force) _stState.Text = $"Checking ports of {d.Ip}…";
+        if (force) _stState.Text = T($"Checking ports of {d.Ip}…");
         await _portSem.WaitAsync();
         try { await Task.Run(() => _engine.CheckPortsAsync(d, _lifetime.Token)); }
         catch { }
         finally { _portSem.Release(); }
-        if (force && !IsDisposed) _stState.Text = $"Ports of {d.Ip}: {(d.OpenPorts.Count == 0 ? "none open" : string.Join(", ", d.OpenPorts))}";
+        if (force && !IsDisposed) _stState.Text = T($"Ports of {d.Ip}: {(d.OpenPorts.Count == 0 ? T("none open") : string.Join(", ", d.OpenPorts))}");
     }
 
     // ───────────────────────────── device tab ─────────────────────────────
@@ -1773,16 +1780,16 @@ public sealed class MainForm : Form
 
     private void ShowLogInfo()
     {
-        _tabs.SetText(2, _logShown > 0 ? $"Log ({_logShown})" : "Log");
+        _tabs.SetText(2, _logShown > 0 ? T($"Log ({_logShown})") : T("Log"));
         var d = _logFor;
         if (d == null || _logFilter == null)
         {
-            _logInfo.Text = _selected == null || !_logOnlySel.Checked ? "Whole log" + (_selected == null ? "  (select a device to see only its lines)" : "") : "Whole log";
+            _logInfo.Text = _selected == null || !_logOnlySel.Checked ? T("Whole log") + (_selected == null ? T("  (select a device to see only its lines)") : "") : T("Whole log");
             return;
         }
         string who;
-        lock (d) who = d.IsSelf ? "this PC" : d.Ip?.ToString() ?? d.DisplayName;
-        _logInfo.Text = _logShown == 0 ? $"No lines about {who} yet  (untick the box to see the whole log)" : $"{_logShown} line(s) about {who}";
+        lock (d) who = d.IsSelf ? T("this PC") : d.Ip?.ToString() ?? d.DisplayName;
+        _logInfo.Text = _logShown == 0 ? T($"No lines about {who} yet  (untick the box to see the whole log)") : T($"{_logShown} line(s) about {who}");
     }
 
     private void RefreshSelected()
@@ -1814,12 +1821,12 @@ public sealed class MainForm : Form
 
     private void ShowEmptyDevicePanel()
     {
-        _detailsHead.Show(null, "No device selected", "Pick a device in the list to see how to open it, its model and its hardware.");
+        _detailsHead.Show(null, T("No device selected"), T("Pick a device in the list to see how to open it, its model and its hardware."));
         _devicePanel.SuspendLayout();
         ClearPanel(_devicePanel);
         _devicePanel.Controls.Add(new Label
         {
-            Text = "Select a device in the list.\n\nDevices with an orange background are on a different subnet from this PC.",
+            Text = T("Select a device in the list.\n\nDevices with an orange background are on a different subnet from this PC."),
             Dock = DockStyle.Fill, ForeColor = Theme.P.Muted, TextAlign = ContentAlignment.MiddleCenter,
         });
         _devicePanel.ResumeLayout();
@@ -1851,10 +1858,10 @@ public sealed class MainForm : Form
             primary = PrimaryFor(d);
             ip = d.Ip;
             title = d.DisplayName.Length > 0 ? d.DisplayName : ip?.ToString() ?? d.Mac;
-            sub = string.Join("  ·  ", new[] { d.DisplayName.Length > 0 && d.DisplayName != d.Model ? d.DisplayName : null, d.Mac.Length > 0 ? d.Mac : "MAC unknown (behind a router)", ShortVendor(d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor) }
+            sub = string.Join("  ·  ", new[] { d.DisplayName.Length > 0 && d.DisplayName != d.Model ? d.DisplayName : null, d.Mac.Length > 0 ? d.Mac : T("MAC unknown (behind a router)"), ShortVendor(d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor) }
                 .Where(s => !string.IsNullOrEmpty(s)));
             type = d.EffectiveType;
-            typeWhy = d.TypeOverride != null ? "set by you" : d.TypeReason;
+            typeWhy = d.TypeOverride != null ? T("set by you") : d.TypeReason;
             reachable = d.Reachable; self = d.IsSelf; routed = d.Routed;
             actions = _engine.Plugins.ActionProviders.SelectMany(p => { try { return p.GetActions(d).ToList(); } catch { return new List<DeviceAction>(); } }).ToList();
             ports = d.OpenPorts.Select(p => (p, d.PortInfo.TryGetValue(p, out var s) ? s : "")).ToList();
@@ -1866,7 +1873,7 @@ public sealed class MainForm : Form
             hw = HardwareRows(d);
         }
         var iconType = self ? Theme.ThisPc : type;
-        _detailsHead.Show(iconType, self ? "This PC" + (ip != null ? "  " + ip : "") : ip?.ToString() ?? title, sub);
+        _detailsHead.Show(iconType, self ? T("This PC") + (ip != null ? "  " + ip : "") : ip?.ToString() ?? title, sub);
 
         _panelWidth = _devicePanel.ClientSize.Width;
         var W = Math.Max(S(220), _devicePanel.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - S(4));
@@ -1880,29 +1887,29 @@ public sealed class MainForm : Form
         // model
         if (ip != null || self)
         {
-            flow.Controls.Add(Text(model != null ? $"Model · from {modelSrc}" : "Model", Theme.Base, P.Muted, 2));
-            flow.Controls.Add(Text(model ?? "Not known yet", model != null ? Theme.Big : Theme.Header, model != null ? P.Text : P.Muted, 2));
+            flow.Controls.Add(Text(model != null ? T($"Model · from {modelSrc}") : T("Model"), Theme.Base, P.Muted, 2));
+            flow.Controls.Add(Text(model ?? T("Not known yet"), model != null ? Theme.Big : Theme.Header, model != null ? P.Text : P.Muted, 2));
             var extra = string.Join("  ·  ", new[] { serial != null ? "S/N " + serial : null, windows }.Where(x => x != null));
             if (extra.Length > 0) flow.Controls.Add(Text(extra, Theme.Base, P.Muted, 3));
             if (winStatus != null)
                 flow.Controls.Add(new Label
                 {
-                    Text = "⚠  " + winStatus + (winStatus.StartsWith("Firewall") ? ": Windows did not let us read it. The fix is in the Log tab." : ""),
+                    Text = "⚠  " + T(winStatus) + (winStatus.StartsWith("Firewall") ? T(": Windows did not let us read it. The fix is in the Log tab.") : ""),
                     AutoSize = true, MaximumSize = new Size(W, 0), BackColor = P.WarnSoft, ForeColor = P.Warn, Font = Theme.Bold, UseMnemonic = false,
                     Padding = new Padding(S(8), S(4), S(8), S(4)), Margin = new Padding(0, S(8), 0, 0),
                 });
             var mb = Buttons();
             if (!self)
             {
-                var get = MakeButton("Get model");
-                new ToolTip().SetToolTip(get, "Ask the device (web page, UPnP, SNMP, ONVIF, IPP) – no password needed");
+                var get = MakeButton(T("Get model"));
+                new ToolTip().SetToolTip(get, T("Ask the device (web page, UPnP, SNMP, ONVIF, IPP) – no password needed"));
                 get.Click += async (_, _) => await GetModelAsync(d);
                 mb.Controls.Add(get);
             }
             if (win)
             {
-                var wmi = MakeButton(self ? "Read this PC's model" : hw.Count > 0 ? "Read again (Windows login)…" : "Windows login…");
-                new ToolTip().SetToolTip(wmi, "Model, serial number, CPU, RAM, disks, graphics card and Windows version, read from Windows itself (needs an admin login on that PC)");
+                var wmi = MakeButton(self ? T("Read this PC's model") : hw.Count > 0 ? T("Read again (Windows login)…") : T("Windows login…"));
+                new ToolTip().SetToolTip(wmi, T("Model, serial number, CPU, RAM, disks, graphics card and Windows version, read from Windows itself (needs an admin login on that PC)"));
                 wmi.Click += async (_, _) => await GetWindowsModelAsync(d, askLogin: !self);
                 mb.Controls.Add(wmi);
             }
@@ -1916,54 +1923,54 @@ public sealed class MainForm : Form
 
         // reachability + open
         if (ip == null)
-            flow.Controls.Add(Text("IP address not known yet: this device was only heard by its MAC address (LLDP / DHCP). Press Scan or wait a little; as soon as it has an IP, the buttons to open it appear here.",
+            flow.Controls.Add(Text(T("IP address not known yet: this device was only heard by its MAC address (LLDP / DHCP). Press Scan or wait a little; as soon as it has an IP, the buttons to open it appear here."),
                 Theme.Bold, P.Warn, 8, 6));
         if (ip != null && !self)
         {
-            flow.Controls.Add(SectionLabel("Open"));
+            flow.Controls.Add(SectionLabel(T("Open")));
             var reach = Buttons();
             if (reachable)
             {
-                flow.Controls.Add(Text(routed ? "✔  Reachable through your router: you can open it directly." : "✔  Same subnet as this PC: you can open it directly.", Theme.Bold, P.Good));
+                flow.Controls.Add(Text(routed ? T("✔  Reachable through your router: you can open it directly.") : T("✔  Same subnet as this PC: you can open it directly."), Theme.Bold, P.Good));
                 if (primary is { } pr)
                 {
-                    var openBtn = MakeButton("Open  " + pr.Label, primary: true);
+                    var openBtn = MakeButton(T("Open  ") + T(pr.Label), primary: true);
                     openBtn.Click += async (_, _) => await RunAction(d, pr.Action);
                     reach.Controls.Add(openBtn);
                 }
             }
             else if (behindNvr != null)
             {
-                flow.Controls.Add(Text($"Recorded by NVR {behindNvr}{ChannelSuffix(nvrChannel)}. Its IP is on the NVR's own camera network, so this PC can't open it directly: open it from the NVR's web page.", Theme.Bold, P.Warn));
-                var nvrBtn = MakeButton("Open NVR web page", primary: true);
+                flow.Controls.Add(Text(T($"Recorded by NVR {behindNvr}{ChannelSuffix(nvrChannel)}. Its IP is on the NVR's own camera network, so this PC can't open it directly: open it from the NVR's web page."), Theme.Bold, P.Warn));
+                var nvrBtn = MakeButton(T("Open NVR web page"), primary: true);
                 nvrBtn.Click += async (_, _) => await OpenNvrAsync(behindNvr);
                 reach.Controls.Add(nvrBtn);
-                var tryBtn = MakeButton("Try a temporary IP");
-                new ToolTip().SetToolTip(tryBtn, "Works only if the camera is on the same cable/switch as this PC (not on the NVR's PoE ports)");
+                var tryBtn = MakeButton(T("Try a temporary IP"));
+                new ToolTip().SetToolTip(tryBtn, T("Works only if the camera is on the same cable/switch as this PC (not on the NVR's PoE ports)"));
                 tryBtn.Click += async (_, _) => await MakeReachableAsync(d);
                 reach.Controls.Add(tryBtn);
             }
             else
             {
-                flow.Controls.Add(Text($"⚠  On another subnet ({Subnet.Of(ip, _settings.ReachPrefix)}). To open it, this PC needs a temporary IP in that subnet.", Theme.Bold, P.Warn));
-                var btn = MakeButton("Make reachable", primary: true);
+                flow.Controls.Add(Text(T($"⚠  On another subnet ({Subnet.Of(ip, _settings.ReachPrefix)}). To open it, this PC needs a temporary IP in that subnet."), Theme.Bold, P.Warn));
+                var btn = MakeButton(T("Make reachable"), primary: true);
                 btn.Click += async (_, _) => await MakeReachableAsync(d);
                 reach.Controls.Add(btn);
             }
             // the device's own actions (web, remote desktop, files, ping…)
             foreach (var a in actions)
             {
-                var b = MakeButton(a.Title);
-                new ToolTip().SetToolTip(b, (a.Group.Length > 0 ? a.Group + ": " : "") + (a.Tooltip ?? a.Title));
+                var b = MakeButton(T(a.Title));
+                new ToolTip().SetToolTip(b, (a.Group.Length > 0 ? T(a.Group) + ": " : "") + T(a.Tooltip ?? a.Title));
                 b.Click += async (_, _) => await RunAction(d, a);
                 reach.Controls.Add(b);
             }
             if (actions.Any(a => a.Group == "Web"))
             {
                 var port = new InputBox(72) { Margin = new Padding(0, S(4), S(6), S(4)) };
-                port.Box.PlaceholderText = "port";
+                port.Box.PlaceholderText = T("port");
                 port.Height = S(32);
-                var go = MakeButton("Open port");
+                var go = MakeButton(T("Open port"));
                 go.Click += async (_, _) =>
                 {
                     if (!int.TryParse(port.Box.Text, out var p) || p is < 1 or > 65535 || ip == null) return;
@@ -1979,16 +1986,16 @@ public sealed class MainForm : Form
         // which switch port it is plugged into
         if (swPort != null)
         {
-            flow.Controls.Add(SectionLabel("Plugged into"));
-            flow.Controls.Add(Text("🔌  " + swPort, Theme.Bold, P.Text));
+            flow.Controls.Add(SectionLabel(T("Plugged into")));
+            flow.Controls.Add(Text("🔌  " + SpotText(swPort), Theme.Bold, P.Text));
             if (Regex.Match(swPort, @"\((\d+) devices\)$") is { Success: true } many)
-                flow.Controls.Add(Text($"{many.Groups[1].Value} devices are learned on this port: another switch or a Wi-Fi access point is plugged in there, and this device is behind it.", Theme.Small, P.Muted, 3));
-            if (arpMac != null) flow.Controls.Add(Text($"MAC {arpMac}, from the router's ARP table.", Theme.Small, P.Muted, 3));
+                flow.Controls.Add(Text(T($"{many.Groups[1].Value} devices are learned on this port: another switch or a Wi-Fi access point is plugged in there, and this device is behind it."), Theme.Small, P.Muted, 3));
+            if (arpMac != null) flow.Controls.Add(Text(T($"MAC {arpMac}, from the router's ARP table."), Theme.Small, P.Muted, 3));
             var spot = PortMap.Locate(d.Mac.Length > 0 ? d.Mac : arpMac ?? "", PortMap.Switches(_engine.Store.All), d);
             if (spot != null)
             {
                 var pb = Buttons();
-                var show = MakeButton("Show the switch");
+                var show = MakeButton(T("Show the switch"));
                 show.Click += (_, _) => { if (spot.Switch.Ip is { } sip) SelectIp(sip.ToString()); };
                 pb.Controls.Add(show);
                 flow.Controls.Add(pb);
@@ -1998,7 +2005,7 @@ public sealed class MainForm : Form
         // watch (ping monitor)
         if (ip != null && !self)
         {
-            flow.Controls.Add(SectionLabel("Watch"));
+            flow.Controls.Add(SectionLabel(T("Watch")));
             var ws = _watcher.Get(ip.ToString());
             var wb = Buttons();
             if (ws != null)
@@ -2007,24 +2014,24 @@ public sealed class MainForm : Form
                 lock (ws) { h = ws.Health; since = ws.Since; last = ws.LastCheck; ms = ws.Ms; via = ws.Via; }
                 var line = h switch
                 {
-                    Health.Up => $"●  Up{(ms is { } m ? $" · {Ms(m)}" : "")}" + (via.StartsWith("port") ? $" (answers on {via}, not to ping)" : ""),
-                    Health.Down => $"●  Down since {since:HH:mm}  ({Ago(since)})",
-                    _ => "●  Checking…",
+                    Health.Up => T($"●  Up{(ms is { } m ? $" · {Ms(m)}" : "")}") + (via.StartsWith("port") ? T($" (answers on {via}, not to ping)") : ""),
+                    Health.Down => T($"●  Down since {since:HH:mm}  ({Ago(since)})"),
+                    _ => T("●  Checking…"),
                 };
                 flow.Controls.Add(Text(line, Theme.Bold, h == Health.Down ? P.Bad : h == Health.Up ? P.Good : P.Muted));
-                flow.Controls.Add(Text($"Pinged every {Dialogs.EveryText(_settings.WatchSeconds)}" + (last is { } t ? $", last check {t:HH:mm:ss}." : "."), Theme.Base, P.Muted, 2));
-                var stop = MakeButton("Stop watching");
+                flow.Controls.Add(Text(T($"Pinged every {Dialogs.EveryText(_settings.WatchSeconds)}") + (last is { } t ? T($", last check {t:HH:mm:ss}.") : "."), Theme.Base, P.Muted, 2));
+                var stop = MakeButton(T("Stop watching"));
                 stop.Click += (_, _) => ToggleWatch(d);
                 wb.Controls.Add(stop);
             }
             else
             {
-                flow.Controls.Add(Text("Get a message when this device stops answering, and when it comes back.", Theme.Base, P.Muted));
-                var start = MakeButton("Watch this device");
+                flow.Controls.Add(Text(T("Get a message when this device stops answering, and when it comes back."), Theme.Base, P.Muted));
+                var start = MakeButton(T("Watch this device"));
                 start.Click += (_, _) => ToggleWatch(d);
                 wb.Controls.Add(start);
             }
-            var pick = MakeButton("Watch devices…");
+            var pick = MakeButton(T("Watch devices…"));
             pick.Click += (_, _) => PickWatched();
             wb.Controls.Add(pick);
             flow.Controls.Add(wb);
@@ -2033,10 +2040,10 @@ public sealed class MainForm : Form
         // NVR / DVR: list its cameras
         if (nvrLike)
         {
-            flow.Controls.Add(SectionLabel("NVR / DVR cameras"));
-            flow.Controls.Add(Text("Log in with the NVR's user and password to list its cameras: channel, IP, model, online/offline (Hikvision, Dahua and their rebrands).", Theme.Base, P.Muted));
+            flow.Controls.Add(SectionLabel(T("NVR / DVR cameras")));
+            flow.Controls.Add(Text(T("Log in with the NVR's user and password to list its cameras: channel, IP, model, online/offline (Hikvision, Dahua and their rebrands)."), Theme.Base, P.Muted));
             var nb = Buttons();
-            var cams = MakeButton(nvrCount != null ? $"Show cameras again ({nvrCount})" : "Show cameras on this NVR…");
+            var cams = MakeButton(nvrCount != null ? T($"Show cameras again ({nvrCount})") : T("Show cameras on this NVR…"));
             cams.Click += (_, _) => ShowCameras(d);
             nb.Controls.Add(cams);
             flow.Controls.Add(nb);
@@ -2045,14 +2052,14 @@ public sealed class MainForm : Form
         // hardware read from Windows
         if (hw.Count > 0)
         {
-            var table = new InfoTable { Title = "Hardware", Margin = new Padding(0, S(18), 0, 0) };
+            var table = new InfoTable { Title = T("Hardware"), Margin = new Padding(0, S(18), 0, 0) };
             table.Rows.AddRange(hw);
             table.Fit(W);
             flow.Controls.Add(table);
         }
 
         // ports: what is open, what is closed, and what is risky
-        flow.Controls.Add(SectionLabel("Ports"));
+        flow.Controls.Add(SectionLabel(T("Ports")));
         var open = ports.Select(p => p.Port).ToHashSet();
         var findings = PortRisk.Check(open);
         if (checkedAt != null && ports.Count > 0)
@@ -2061,50 +2068,51 @@ public sealed class MainForm : Form
             foreach (var (port, info) in ports)
             {
                 if (findings.Any(f => f.Port == port && f.Level == PortRiskLevel.High)) chips.Bad.Add(chips.Chips.Count);
-                chips.Chips.Add((port.ToString(), port == 88 && kerberos ? "Kerberos (domain logins)" : PortName(port), info.Length > 0 ? info : null));
+                chips.Chips.Add((port.ToString(), port == 88 && kerberos ? T("Kerberos (domain logins)") : PortName(port), info.Length > 0 ? info : null));
             }
             chips.Fit(W);
             flow.Controls.Add(chips);
         }
         else
             flow.Controls.Add(Text(checkedAt == null
-                ? (reachable ? "Not checked yet." : "Make the device reachable first, then check its ports.")
-                : $"No open ports found (checked {checkedAt:HH:mm:ss}).", Theme.Base, P.Muted));
+                ? (reachable ? T("Not checked yet.") : T("Make the device reachable first, then check its ports."))
+                : T($"No open ports found (checked {checkedAt:HH:mm:ss})."), Theme.Base, P.Muted));
         if (checkedAt != null)
         {
-            var closed = PortRisk.KeyServices.Where(k => !open.Contains(k.Port)).Select(k => $"{k.Name} {k.Port}").ToList();
-            if (closed.Count > 0) flow.Controls.Add(Text("Closed: " + string.Join("  ·  ", closed), Theme.Small, P.Muted, 4));
-            flow.Controls.Add(Text($"Checked {checkedAt:HH:mm:ss}, {_settings.Ports.Count} common ports.", Theme.Small, P.Muted, 2));
+            var closed = PortRisk.KeyServices.Where(k => !open.Contains(k.Port)).Select(k => $"{T(k.Name)} {k.Port}").ToList();
+            if (closed.Count > 0) flow.Controls.Add(Text(T("Closed: ") + string.Join("  ·  ", closed), Theme.Small, P.Muted, 4));
+            flow.Controls.Add(Text(T($"Checked {checkedAt:HH:mm:ss}, {_settings.Ports.Count} common ports."), Theme.Small, P.Muted, 2));
         }
         foreach (var f in findings.Where(f => f.Level == PortRiskLevel.High))
         {
             var card = new InfoCard { Tone = InfoCard.Kind.Bad, Width = W, Margin = new Padding(0, S(8), 0, 0), Cursor = Cursors.Default };
-            card.Title = $"⚠  {f.Service} is open (port {f.Port})";
-            card.Body = f.Advice;
+            card.Title = T($"⚠  {T(f.Service)} is open (port {f.Port})");
+            card.Body = T(f.Advice);
             flow.Controls.Add(card);
         }
         foreach (var f in findings.Where(f => f.Level == PortRiskLevel.Note))
-            flow.Controls.Add(Text($"{f.Service} ({f.Port}): {f.Advice}", Theme.Small, P.Muted, 6));
+            flow.Controls.Add(Text($"{T(f.Service)} ({f.Port}): {T(f.Advice)}", Theme.Small, P.Muted, 6));
         if (reachable && !self)
         {
             var pb = Buttons();
-            var chk = MakeButton(checkedAt != null ? "Check ports again" : "Check ports");
+            var chk = MakeButton(checkedAt != null ? T("Check ports again") : T("Check ports"));
             chk.Click += async (_, _) => await CheckPortsAsync(d, force: true);
             pb.Controls.Add(chk);
             flow.Controls.Add(pb);
         }
 
         // type + name
-        flow.Controls.Add(SectionLabel("Type and name"));
-        if (!string.IsNullOrEmpty(typeWhy)) flow.Controls.Add(Text("Detected from: " + typeWhy, Theme.Small, P.Muted, 0, 4));
+        flow.Controls.Add(SectionLabel(T("Type and name")));
+        if (!string.IsNullOrEmpty(typeWhy)) flow.Controls.Add(Text(T("Detected from: ") + typeWhy, Theme.Small, P.Muted, 0, 4));
         var edit = Buttons();
-        var rename = MakeButton("Rename…");
+        var rename = MakeButton(T("Rename…"));
         rename.Click += (_, _) => Rename(d);
         var typeBox = new DropPicker { Width = S(220), Margin = new Padding(0, S(4), 0, S(4)) };
-        typeBox.Items.Add("Type: automatic");
-        typeBox.Items.AddRange(DeviceTypes.All.Where(t => t != DeviceTypes.Unknown));
-        lock (d) typeBox.SelectedItem = d.TypeOverride ?? (object)"Type: automatic";
-        typeBox.SelectedIndexChanged += (_, _) => SetType(d, typeBox.SelectedIndex == 0 ? null : typeBox.SelectedItem as string);
+        typeBox.Items.Add(T("Type: automatic"));
+        var typeKeys = DeviceTypes.All.Where(t => t != DeviceTypes.Unknown).ToList();
+        foreach (var t in typeKeys) typeBox.Items.Add(T(t));
+        lock (d) typeBox.SelectedIndex = d.TypeOverride is { } over && typeKeys.IndexOf(over) is >= 0 and var at ? at + 1 : 0;
+        typeBox.SelectedIndexChanged += (_, _) => SetType(d, typeBox.SelectedIndex <= 0 ? null : typeKeys[typeBox.SelectedIndex - 1]);
         edit.Controls.Add(rename);
         edit.Controls.Add(typeBox);
         flow.Controls.Add(edit);
@@ -2119,26 +2127,26 @@ public sealed class MainForm : Form
     private void RenderPrinter(FlowLayoutPanel flow, Device d, PrinterState pr, int W, Func<string, Font, Color, int, int, Label> text, Func<FlowLayoutPanel> buttons)
     {
         var P = Theme.P;
-        flow.Controls.Add(SectionLabel("Ink / toner"));
+        flow.Controls.Add(SectionLabel(T("Ink / toner")));
         if (pr.Supplies.Count > 0)
         {
             var table = new InfoTable { Margin = new Padding(0, 0, 0, 0), KeyWidth = 120 };
             foreach (var x in pr.Supplies)
             {
-                var level = Ink.Level(x) + (x.Low ? (x.FillsUp ? "  ·  replace it" : "  ·  low") : "");
+                var level = Ink.Level(x) + (x.Low ? (x.FillsUp ? T("  ·  replace it") : T("  ·  low")) : "");
                 double? bar = x.Percent is { } pct ? pct / 100.0 : null;
-                table.Rows.Add(new InfoTable.Row(x.Name, level, x.Detail, false, bar, x.FillsUp ? (x.Low ? P.Warn : P.Muted) : Ink.For(x.Color), x.Low));
+                table.Rows.Add(new InfoTable.Row(Ink.Name(x), level, x.Detail, false, bar, x.FillsUp ? (x.Low ? P.Warn : P.Muted) : Ink.For(x.Color), x.Low));
             }
             table.Fit(W);
             flow.Controls.Add(table);
         }
-        else flow.Controls.Add(text("The printer answers, but does not tell its toner / ink levels.", Theme.Base, P.Muted, 0, 0));
-        var facts = string.Join("  ·  ", new[] { pr.Pages is { } pages ? $"{pages:N0} pages printed" : null, pr.Status }.Where(x => x != null));
+        else flow.Controls.Add(text(T("The printer answers, but does not tell its toner / ink levels."), Theme.Base, P.Muted, 0, 0));
+        var facts = string.Join("  ·  ", new[] { pr.Pages is { } pages ? T($"{pages:N0} pages printed") : null, pr.Status == null ? null : T(pr.Status) }.Where(x => x != null));
         if (facts.Length > 0) flow.Controls.Add(text(facts, Theme.Bold, P.Text, 8, 0));
-        foreach (var a in pr.Alerts) flow.Controls.Add(text("⚠  " + a, Theme.Base, P.Warn, 3, 0));
-        flow.Controls.Add(text($"Read over SNMP at {pr.ReadAt:HH:mm}.", Theme.Small, P.Muted, 4, 0));
+        foreach (var a in pr.Alerts) flow.Controls.Add(text("⚠  " + T(a), Theme.Base, P.Warn, 3, 0));
+        flow.Controls.Add(text(T($"Read over SNMP at {pr.ReadAt:HH:mm}."), Theme.Small, P.Muted, 4, 0));
         var b = buttons();
-        var again = MakeButton(_snmpBusy.Contains(d) ? "Reading…" : "Read again");
+        var again = MakeButton(_snmpBusy.Contains(d) ? T("Reading…") : T("Read again"));
         again.Enabled = !_snmpBusy.Contains(d);
         again.Click += async (_, _) => await ReadSnmpAsync(d);
         b.Controls.Add(again);
@@ -2149,21 +2157,21 @@ public sealed class MainForm : Form
     private void RenderSwitch(FlowLayoutPanel flow, Device d, SwitchState sw, int W, Func<string, Font, Color, int, int, Label> text, Func<FlowLayoutPanel> buttons)
     {
         var P = Theme.P;
-        flow.Controls.Add(SectionLabel("Switch ports"));
-        flow.Controls.Add(text($"{sw.Up} of {sw.Ports.Count} ports up  ·  {sw.MacCount} devices learned", Theme.Bold, P.Text, 0, 6));
+        flow.Controls.Add(SectionLabel(T("Switch ports")));
+        flow.Controls.Add(text(T($"{sw.Up} of {sw.Ports.Count} ports up  ·  {sw.MacCount} devices learned"), Theme.Bold, P.Text, 0, 6));
         var byMac = PortPeople.ByMac(_engine.Store.All);
         var grid = new PortGrid { Margin = new Padding(0, S(2), 0, 0) };
         foreach (var p in sw.Ports) grid.Ports.Add((p, PortPeople.Tip(p, byMac)));
         grid.Fit(W);
         grid.PortClicked += p => ShowSwitchPorts(d);
         flow.Controls.Add(grid);
-        flow.Controls.Add(text("Green: a device  ·  Blue: several devices (another switch or Wi-Fi AP)  ·  Light green: link up, nothing learned  ·  Gray: nothing plugged in", Theme.Small, P.Muted, 6, 0));
-        flow.Controls.Add(text($"Read over SNMP at {sw.ReadAt:HH:mm}." + (sw.Arp.Count > 0 ? $" Its ARP table has {sw.Arp.Count} addresses." : ""), Theme.Small, P.Muted, 3, 0));
+        flow.Controls.Add(text(T("Green: a device  ·  Blue: several devices (another switch or Wi-Fi AP)  ·  Light green: link up, nothing learned  ·  Gray: nothing plugged in"), Theme.Small, P.Muted, 6, 0));
+        flow.Controls.Add(text(T($"Read over SNMP at {sw.ReadAt:HH:mm}.") + (sw.Arp.Count > 0 ? T($" Its ARP table has {sw.Arp.Count} addresses.") : ""), Theme.Small, P.Muted, 3, 0));
         var b = buttons();
-        var show = MakeButton("Show ports…", primary: true);
+        var show = MakeButton(T("Show ports…"), primary: true);
         show.Click += (_, _) => ShowSwitchPorts(d);
         b.Controls.Add(show);
-        var again = MakeButton(_snmpBusy.Contains(d) ? "Reading…" : "Read again");
+        var again = MakeButton(_snmpBusy.Contains(d) ? T("Reading…") : T("Read again"));
         again.Enabled = !_snmpBusy.Contains(d);
         again.Click += async (_, _) => await ReadSnmpAsync(d);
         b.Controls.Add(again);
@@ -2174,22 +2182,22 @@ public sealed class MainForm : Form
     private void RenderSnmpAsk(FlowLayoutPanel flow, Device d, string type, DateTime? tried, bool answered, int W, Func<string, Font, Color, int, int, Label> text, Func<FlowLayoutPanel> buttons)
     {
         var P = Theme.P;
-        var what = type == DeviceTypes.Printer ? "toner / ink levels" : type == DeviceTypes.Switch ? "ports (which device is on which port)" : "devices and ports";
-        flow.Controls.Add(SectionLabel(type == DeviceTypes.Printer ? "Ink / toner" : "Ports (SNMP)"));
+        var what = type == DeviceTypes.Printer ? T("toner / ink levels") : type == DeviceTypes.Switch ? T("ports (which device is on which port)") : T("devices and ports");
+        flow.Controls.Add(SectionLabel(type == DeviceTypes.Printer ? T("Ink / toner") : T("Ports (SNMP)")));
         var busy = _snmpBusy.Contains(d);
         var communities = string.Join(", ", _settings.SnmpCommunityList.Select(c => $"\"{c}\""));
-        flow.Controls.Add(text(busy ? "Reading over SNMP…" :
-            tried == null ? $"Not read yet. NetFinder reads its {what} over SNMP." :
-            answered ? $"It answered over SNMP, but does not share its {what}." :
-            $"No answer over SNMP with the community {communities}. SNMP may be off on the device, or it uses another community (like a password, set on the device's web page).",
+        flow.Controls.Add(text(busy ? T("Reading over SNMP…") :
+            tried == null ? T($"Not read yet. NetFinder reads its {what} over SNMP.") :
+            answered ? T($"It answered over SNMP, but does not share its {what}.") :
+            T($"No answer over SNMP with the community {communities}. SNMP may be off on the device, or it uses another community (like a password, set on the device's web page)."),
             Theme.Base, tried != null && !answered && !busy ? P.Warn : P.Muted, 0, 6));
         var row = buttons();
         var box = new InputBox(150) { Margin = new Padding(0, S(4), S(6), S(4)) };
         box.Box.Text = _settings.SnmpCommunities;
         box.Box.PlaceholderText = "public";
-        var read = MakeButton(busy ? "Reading…" : tried == null ? "Read now" : "Save and try again", primary: true);
+        var read = MakeButton(busy ? T("Reading…") : tried == null ? T("Read now") : T("Save and try again"), primary: true);
         read.Enabled = !busy;
-        new ToolTip().SetToolTip(box.Box, "SNMP read community. Several? Put a comma between them. Saved for all devices (also in ☰ → Settings).");
+        new ToolTip().SetToolTip(box.Box, T("SNMP read community. Several? Put a comma between them. Saved for all devices (also in ☰ → Settings)."));
         async Task Go()
         {
             var c = string.IsNullOrWhiteSpace(box.Box.Text) ? "public" : box.Box.Text.Trim();
@@ -2198,7 +2206,7 @@ public sealed class MainForm : Form
         }
         read.Click += async (_, _) => await Go();
         box.Box.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await Go(); } };
-        row.Controls.Add(new Label { Text = "Community:", AutoSize = true, ForeColor = P.Muted, Margin = new Padding(0, S(12), S(6), 0) });
+        row.Controls.Add(new Label { Text = T("Community:"), AutoSize = true, ForeColor = P.Muted, Margin = new Padding(0, S(12), S(6), 0) });
         row.Controls.Add(box);
         row.Controls.Add(read);
         flow.Controls.Add(row);
@@ -2214,17 +2222,17 @@ public sealed class MainForm : Form
         try
         {
             if (ip == null) return;
-            if (!reachable && MessageBox.Show(this, $"{ip} is on another subnet. Add a temporary IP in its subnet to ask it? (If your router lets this PC reach it, SNMP may work without one: press Cancel to try anyway.)",
+            if (!reachable && Ui.Box(this, T($"{ip} is on another subnet. Add a temporary IP in its subnet to ask it? (If your router lets this PC reach it, SNMP may work without one: press Cancel to try anyway.)"),
                     AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK && !await MakeReachableAsync(d)) return;
-            _stState.Text = $"Reading {ip} over SNMP…";
+            _stState.Text = T($"Reading {ip} over SNMP…");
             await Task.Run(() => new SnmpEnricher().EnrichAsync(d, new EnrichContext { Engine = _engine, Settings = _settings }, CancellationToken.None));
             PrinterState? pr; SwitchState? sw; bool answered;
             lock (d) { pr = d.Printer; sw = d.Switch; answered = d.Sources.Contains("SNMP"); }
-            _stState.Text = !answered ? $"{ip} did not answer over SNMP (community {_settings.SnmpCommunities})." :
-                pr != null ? $"{ip}: " + (pr.Supplies.Count > 0 ? string.Join(", ", Ink.Shown(pr).Select(x => x.Text)) : "printer, no supply levels") :
-                sw is { IsBridge: true } ? $"{ip}: {sw.Up} of {sw.Ports.Count} ports up, {sw.MacCount} devices learned" : $"{ip} answered over SNMP.";
+            _stState.Text = !answered ? T($"{ip} did not answer over SNMP (community {_settings.SnmpCommunities}).") :
+                pr != null ? $"{ip}: " + (pr.Supplies.Count > 0 ? string.Join(", ", Ink.Shown(pr).Select(Ink.Text)) : T("printer, no supply levels")) :
+                sw is { IsBridge: true } ? T($"{ip}: {sw.Up} of {sw.Ports.Count} ports up, {sw.MacCount} devices learned") : T($"{ip} answered over SNMP.");
         }
-        catch (Exception ex) { _stState.Text = $"SNMP {ip}: {ex.Message}"; }
+        catch (Exception ex) { _stState.Text = T($"SNMP {ip}: {ex.Message}"); }
         finally
         {
             _snmpBusy.Remove(d);
@@ -2250,7 +2258,7 @@ public sealed class MainForm : Form
                 SelectIp(ip.ToString());
                 return;
             }
-        _stState.Text = $"Port {p.Name}: the device(s) there are not in the list (MAC {string.Join(", ", p.Macs.Take(3))}).";
+        _stState.Text = T($"Port {p.Name}: the device(s) there are not in the list (MAC {string.Join(", ", p.Macs.Take(3))}).");
     }
 
     /// <summary>CPU, RAM, each disk (with an SSD / HDD chip), each drive (with how full it is), graphics: what Windows told (call inside lock).</summary>
@@ -2268,7 +2276,7 @@ public sealed class MainForm : Form
                 var name = m.Success ? m.Groups["name"].Value : disks[i];
                 var parts = m.Success ? m.Groups["parts"].Value.Split(", ") : Array.Empty<string>();
                 var chip = parts.Length > 0 ? string.Join(" · ", parts) : null;
-                rows.Add(new(disks.Count > 1 ? $"Disk {i + 1}" : "Disk", name, chip, parts.Any(p => p is "SSD" or "NVMe")));
+                rows.Add(new(disks.Count > 1 ? T($"Disk {i + 1}") : T("Disk"), name, chip, parts.Any(p => p is "SSD" or "NVMe")));
             }
         }
         var drives = d.Info.GetValueOrDefault("Drives") is { } dv ? SplitDisks(dv) : d.Info.GetValueOrDefault("Drive C:") is { } c ? new List<string> { "C: " + c } : new();
@@ -2276,10 +2284,10 @@ public sealed class MainForm : Form
         {
             var m = Regex.Match(dr, @"^(?<l>[A-Za-z]:)\s+(?<t>[\d.,]+\s*[KMGT]B)\s*\((?<f>[\d.,]+\s*[KMGT]B) free\)");
             if (m.Success && Bytes(m.Groups["t"].Value) is > 0 and var total && Bytes(m.Groups["f"].Value) is var free)
-                rows.Add(new("Drive " + m.Groups["l"].Value.ToUpperInvariant(), $"{m.Groups["f"].Value} free of {m.Groups["t"].Value}", Bar: 1 - free / total));
-            else rows.Add(new("Drive " + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]));
+                rows.Add(new(T("Drive ") + m.Groups["l"].Value.ToUpperInvariant(), T($"{m.Groups["f"].Value} free of {m.Groups["t"].Value}"), Bar: 1 - free / total));
+            else rows.Add(new(T("Drive ") + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]));
         }
-        if (d.Info.GetValueOrDefault("Graphics") is { } gpu) rows.Add(new("Graphics", gpu));
+        if (d.Info.GetValueOrDefault("Graphics") is { } gpu) rows.Add(new(T("Graphics"), gpu));
         return rows;
     }
 
@@ -2291,9 +2299,31 @@ public sealed class MainForm : Form
         return v * Math.Pow(1024, "KMGT".IndexOf(m.Groups[2].Value) + 1);
     }
 
-    private static string PortName(int p) => PortRisk.Service(p);
+    private static string PortName(int p) => T(PortRisk.Service(p));
 
     private RoundButton MakeButton(string text, bool primary = false) => new(text, primary);
+
+    /// <summary>The window is built in one language; a new one is used from the next start.</summary>
+    private void AskRestartForLanguage()
+    {
+        var next = Core.Text.L.Available().FirstOrDefault(l => l.Code == _settings.Language) ?? Core.Text.L.Builtin[0];
+        // asked in both languages: the old one (what the user reads now) and the new one
+        var text = T("Restart NetFinder now to show it in the new language?");
+        using (Core.Text.L.Scope(next.Code)) { var other = T("Restart NetFinder now to show it in the new language?"); if (other != text) text += "\n\n" + other; }
+        if (Ui.Box(this, text, next.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        Program.RestartRequested = true;
+        Close();
+    }
+
+    /// <summary>"CORE-SW1 · port 7 (3 devices)" (kept in English in the device info) in the window's language.</summary>
+    private static string SpotText(string? spot)
+    {
+        if (string.IsNullOrEmpty(spot)) return "";
+        var m = Regex.Match(spot, @"^(?<sw>.*) · port (?<port>.+?)(?: \((?<n>\d+) devices\))?$");
+        if (!m.Success) return spot;
+        var text = T($"{m.Groups["sw"].Value} · port {m.Groups["port"].Value}");
+        return m.Groups["n"].Success ? text + " " + T($"({m.Groups["n"].Value} devices)") : text;
+    }
 
     private void RenderDetails(Device d)
     {
@@ -2301,31 +2331,31 @@ public sealed class MainForm : Form
         void Add(string k, string? v) { if (!string.IsNullOrEmpty(v)) _details.Rows.Add(new InfoTable.Row(k, v)); }
         lock (d)
         {
-            Add("Type", d.EffectiveType + (d.TypeOverride != null ? " (set by you)" : ""));
-            Add("Detected from", d.TypeReason);
-            Add("Name (yours)", d.CustomName);
-            Add("Hostname", d.Hostname);
-            Add("Model", d.Model == null ? null : d.Model + (d.ModelSource != null ? $"   (from {d.ModelSource})" : ""));
-            Add("IP addresses", string.Join(", ", d.Ips));
+            Add(T("Type"), T(d.EffectiveType) + (d.TypeOverride != null ? T(" (set by you)") : ""));
+            Add(T("Detected from"), d.TypeReason);
+            Add(T("Name (yours)"), d.CustomName);
+            Add(T("Hostname"), d.Hostname);
+            Add(T("Model"), d.Model == null ? null : d.Model + (d.ModelSource != null ? T($"   (from {d.ModelSource})") : ""));
+            Add(T("IP addresses"), string.Join(", ", d.Ips));
             Add("MAC", d.Mac);
-            Add("Vendor", d.Vendor);
-            Add("Network", d.Ip == null ? null : d.Routed ? "Behind a router (reached by ping/TCP)" : d.Reachable ? "Same subnet as this PC" :
-                d.BehindNvr != null ? $"On the camera network of NVR {d.BehindNvr}" : "Other subnet: " + Subnet.Of(d.Ip, 24));
-            Add("Recorded by NVR", d.BehindNvr);
-            Add("Found via", string.Join(", ", d.Sources));
-            Add("Adapter", _engine.AdapterById(d.AdapterId)?.FriendlyName);
-            Add("First seen", d.FirstSeen.ToString("yyyy-MM-dd HH:mm:ss"));
-            Add("Last seen", d.LastSeen.ToString("yyyy-MM-dd HH:mm:ss"));
-            Add("Open ports", string.Join(", ", d.OpenPorts));
-            foreach (var kv in d.PortInfo) Add($"Port {kv.Key}", kv.Value);
-            Add("Services (mDNS)", string.Join(", ", d.Services));
+            Add(T("Vendor"), d.Vendor);
+            Add(T("Network"), d.Ip == null ? null : d.Routed ? T("Behind a router (reached by ping/TCP)") : d.Reachable ? T("Same subnet as this PC") :
+                d.BehindNvr != null ? T($"On the camera network of NVR {d.BehindNvr}") : T("Other subnet: ") + Subnet.Of(d.Ip, 24));
+            Add(T("Recorded by NVR"), d.BehindNvr);
+            Add(T("Found via"), string.Join(", ", d.Sources));
+            Add(T("Adapter"), _engine.AdapterById(d.AdapterId)?.FriendlyName);
+            Add(T("First seen"), d.FirstSeen.ToString("yyyy-MM-dd HH:mm:ss"));
+            Add(T("Last seen"), d.LastSeen.ToString("yyyy-MM-dd HH:mm:ss"));
+            Add(T("Open ports"), string.Join(", ", d.OpenPorts));
+            foreach (var kv in d.PortInfo) Add(T($"Port {kv.Key}"), kv.Value);
+            Add(T("Services (mDNS)"), string.Join(", ", d.Services));
             foreach (var kv in d.Info)
             {
                 if (kv.Key == "Disk" && SplitDisks(kv.Value) is { Count: > 1 } disks)
-                    for (var i = 0; i < disks.Count; i++) Add($"Disk {i + 1}", disks[i]);
+                    for (var i = 0; i < disks.Count; i++) Add(T($"Disk {i + 1}"), disks[i]);
                 else if (kv.Key == "Drives")
-                    foreach (var dr in SplitDisks(kv.Value)) Add("Drive " + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]);
-                else Add(kv.Key, kv.Value);
+                    foreach (var dr in SplitDisks(kv.Value)) Add(T("Drive ") + dr.Split(' ')[0], dr[(dr.IndexOf(' ') + 1)..]);
+                else Add(T(kv.Key), T(kv.Value));
             }
         }
         FitDetails();
@@ -2351,26 +2381,26 @@ public sealed class MainForm : Form
             lock (d) nvr = d.BehindNvr;
             if (nvr != null)
             {
-                var c = MessageBox.Show(this,
-                    $"{d.Ip} is recorded by NVR {nvr} and sits on the NVR's own camera network, so this PC can't open it directly.\n\n" +
-                    "Yes  =  open the NVR's web page (you can see and set up the camera from there)\n" +
-                    "No  =  try anyway with a temporary IP in its subnet",
+                var c = Ui.Box(this,
+                    T($"{d.Ip} is recorded by NVR {nvr} and sits on the NVR's own camera network, so this PC can't open it directly.\n\n" +
+                    $"Yes  =  open the NVR's web page (you can see and set up the camera from there)\n" +
+                    $"No  =  try anyway with a temporary IP in its subnet"),
                     AppInfo.Name, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
                 if (c == DialogResult.Cancel) return;
                 if (c == DialogResult.Yes) { await OpenNvrAsync(nvr); return; }
                 if (!await MakeReachableAsync(d)) return;
                 try { a.Execute(); }
-                catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                catch (Exception ex) { Ui.Box(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
                 return;
             }
-            var r = MessageBox.Show(this,
-                $"{d.Ip} is on another subnet, so this PC cannot talk to it yet.\n\nAdd a temporary IP in its subnet first? (It is removed when you close {AppInfo.Name}.)",
+            var r = Ui.Box(this,
+                T($"{d.Ip} is on another subnet, so this PC cannot talk to it yet.\n\nAdd a temporary IP in its subnet first? (It is removed when you close {AppInfo.Name}.)"),
                 AppInfo.Name, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
             if (r == DialogResult.Cancel) return;
             if (r == DialogResult.Yes && !await MakeReachableAsync(d)) return;
         }
         try { a.Execute(); }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        catch (Exception ex) { Ui.Box(this, ex.Message, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
     private void OpenWeb(Device? d, string scheme)
@@ -2389,7 +2419,7 @@ public sealed class MainForm : Form
             if (d.BehindNvr != null && !d.Reachable)
             {
                 var nvr = d.BehindNvr;
-                return ("via NVR", new DeviceAction("NVR", "Open NVR web page", () => Launcher.Open($"http://{nvr}/")));
+                return (T("via NVR"), new DeviceAction("NVR", T("Open NVR web page"), () => Launcher.Open($"http://{nvr}/")));
             }
             return BuiltInActions.Primary(d);
         }
@@ -2401,7 +2431,7 @@ public sealed class MainForm : Form
         if (PrimaryFor(d) is not { } p)
         {
             bool hasIp; lock (d) hasIp = d.Ip != null && !d.IsSelf;
-            if (hasIp) { _ = CheckPortsAsync(d, force: true); _stState.Text = $"No open web/remote port known for {d.Ip}; checking its ports…"; }
+            if (hasIp) { _ = CheckPortsAsync(d, force: true); _stState.Text = T($"No open web/remote port known for {d.Ip}; checking its ports…"); }
             return;
         }
         if (p.Action.Group == "NVR") { string? nvr; lock (d) nvr = d.BehindNvr; if (nvr != null) _ = OpenNvrAsync(nvr); return; }
@@ -2418,23 +2448,23 @@ public sealed class MainForm : Form
         }
         else
         {
-            try { Launcher.Open($"http://{nvrIp}/"); } catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name); }
+            try { Launcher.Open($"http://{nvrIp}/"); } catch (Exception ex) { Ui.Box(this, ex.Message, AppInfo.Name); }
         }
     }
 
     private static string ChannelSuffix(string? nvrChannel)
     {
         var m = nvrChannel == null ? null : System.Text.RegularExpressions.Regex.Match(nvrChannel, @"channel (\d+)");
-        return m is { Success: true } ? $" (channel {m.Groups[1].Value})" : "";
+        return m is { Success: true } ? T($" (channel {m.Groups[1].Value})") : "";
     }
 
-    private static string NetText(Device d) => d.IsSelf ? "My subnet" : Core.Export.DeviceText.Network(d);
+    private static string NetText(Device d) => d.IsSelf ? T("My subnet") : Core.Export.DeviceText.Network(d);
 
     /// <summary>"Show cameras": goes through RunAction so an NVR on another subnet is made reachable first.</summary>
     private void ShowCameras(Device? d)
     {
         if (d?.Ip == null) return;
-        _ = RunAction(d, new DeviceAction("Tools", "Show cameras", () => ShowCamerasDialog(d)));
+        _ = RunAction(d, new DeviceAction("Tools", T("Show cameras"), () => ShowCamerasDialog(d)));
     }
 
     private void ShowCamerasDialog(Device d)
@@ -2444,7 +2474,7 @@ public sealed class MainForm : Form
             if (IPAddress.TryParse(new Uri(url.Contains("://") ? url : "http://" + url).Host, out var ip) && _engine.Store.FindByIp(ip) is { } nvr)
                 _ = RunAction(nvr, new DeviceAction("Web", url, () => Launcher.Open(url)));
             else
-                try { Launcher.Open(url); } catch (Exception ex) { MessageBox.Show(this, ex.Message, AppInfo.Name); }
+                try { Launcher.Open(url); } catch (Exception ex) { Ui.Box(this, ex.Message, AppInfo.Name); }
         });
         f.ShowDialog(this);
     }
@@ -2452,12 +2482,12 @@ public sealed class MainForm : Form
     private async Task<bool> MakeReachableAsync(Device d)
     {
         UseWaitCursor = true;
-        _stState.Text = $"Adding a temporary IP to reach {d.Ip}…";
+        _stState.Text = T($"Adding a temporary IP to reach {d.Ip}…");
         try
         {
             var (ok, msg) = await _reach.MakeReachableAsync(d);
             _stState.Text = msg.Split('\n')[0];
-            if (!ok) { MessageBox.Show(this, msg, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+            if (!ok) { Ui.Box(this, msg, AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
             _ = CheckPortsAsync(d, force: true);
             return true;
         }
@@ -2469,7 +2499,7 @@ public sealed class MainForm : Form
         if (d == null) return;
         string current;
         lock (d) current = d.CustomName ?? d.Hostname ?? "";
-        var name = Dialogs.Input(this, "Rename device", $"Name for {d.Ip}{(d.Mac.Length > 0 ? $" ({d.Mac})" : "")}:", current);
+        var name = Dialogs.Input(this, T("Rename device"), T($"Name for {d.Ip}{(d.Mac.Length > 0 ? $" ({d.Mac})" : "")}:"), current);
         if (name == null) return;
         _engine.Store.Touch(d, x => x.CustomName = name.Length == 0 ? null : name);
         lock (d) _engine.Store.Labels.Set(d);
@@ -2487,10 +2517,10 @@ public sealed class MainForm : Form
 
     private void Export(string ext)
     {
-        var kind = ext switch { ".pdf" => "PDF report", ".csv" => "CSV – opens in Excel", ".html" => "Web page", _ => "Excel workbook" };
+        var kind = ext switch { ".pdf" => T("PDF report"), ".csv" => T("CSV – opens in Excel"), ".html" => T("Web page"), _ => T("Excel workbook") };
         using var dlg = new SaveFileDialog
         {
-            Title = $"Export the {_rows.Values.Count(r => r.Visible)} devices shown",
+            Title = T($"Export the {_rows.Values.Count(r => r.Visible)} devices shown"),
             Filter = $"{kind} (*{ext})|*{ext}",
             FileName = $"{AppInfo.Name}-{DateTime.Now:yyyyMMdd-HHmm}",
             DefaultExt = ext.TrimStart('.'),
@@ -2506,13 +2536,13 @@ public sealed class MainForm : Form
             UseWaitCursor = true;
             try { Core.Export.Exporter.Save(path, devices, ExportTitle(), WatchExportText); }
             finally { UseWaitCursor = false; }
-            _stState.Text = $"Exported {devices.Count} devices to {path}";
-            if (MessageBox.Show(this, $"Saved {devices.Count} devices to\n{path}\n\nOpen it now?", AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+            _stState.Text = T($"Exported {devices.Count} devices to {path}");
+            if (Ui.Box(this, T($"Saved {devices.Count} devices to\n{path}\n\nOpen it now?"), AppInfo.Name, MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
                 Launcher.Open(path);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Could not save the file: " + ex.Message + $"\n\n(Is it open in {(ext == ".pdf" ? "a PDF viewer" : "Excel")}? Close it and try again.)", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Ui.Box(this, T("Could not save the file: ") + ex.Message + T($"\n\n(Is it open in {(ext == ".pdf" ? T("a PDF viewer") : T("Excel"))}? Close it and try again.)"), AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
@@ -2522,6 +2552,15 @@ public sealed class MainForm : Form
     private readonly Dictionary<string, DateTime> _downSince = new();
 
     /// <summary>"Up · 3 ms", "Down · 4 min", "Checking…", or "" when the address is not watched.</summary>
+    private Health WatchHealth(Device d)
+    {
+        string? ip;
+        lock (d) ip = d.Ip?.ToString();
+        var s = _watcher.Get(ip);
+        if (s == null) return Health.Unknown;
+        lock (s) return s.Health;
+    }
+
     private string WatchText(string? ip)
     {
         var s = _watcher.Get(ip);
@@ -2529,22 +2568,22 @@ public sealed class MainForm : Form
         lock (s)
             return s.Health switch
             {
-                Health.Up => s.Ms is { } ms ? $"Up · {Ms(ms)}" : "Up",
-                Health.Down => $"Down · {Ago(s.Since)}",
-                _ => "Checking…",
+                Health.Up => s.Ms is { } ms ? T($"Up · {Ms(ms)}") : T("Up"),
+                Health.Down => T($"Down · {Ago(s.Since)}"),
+                _ => T("Checking…"),
             };
     }
 
-    private static string Ms(long ms) => ms < 1 ? "<1 ms" : $"{ms} ms";
+    private static string Ms(long ms) => ms < 1 ? T("<1 ms") : T($"{ms} ms");
 
     private static string Ago(DateTime t)
     {
         var m = (DateTime.Now - t).TotalMinutes;
-        return m < 1 ? "just now" : m < 60 ? $"{(int)m} min" : m < 48 * 60 ? $"{(int)(m / 60)} h {(int)(m % 60)} min" : $"{(int)(m / 1440)} days";
+        return m < 1 ? T("just now") : m < 60 ? T($"{(int)m} min") : m < 48 * 60 ? T($"{(int)(m / 60)} h {(int)(m % 60)} min") : T($"{(int)(m / 1440)} days");
     }
 
     private static string Took(TimeSpan t) =>
-        t.TotalMinutes < 1 ? $"{Math.Max(1, (int)t.TotalSeconds)} s" : t.TotalMinutes < 60 ? $"{(int)t.TotalMinutes} min" : $"{(int)t.TotalHours} h {t.Minutes} min";
+        t.TotalMinutes < 1 ? $"{Math.Max(1, (int)t.TotalSeconds)} s" : t.TotalMinutes < 60 ? T($"{(int)t.TotalMinutes} min") : T($"{(int)t.TotalHours} h {t.Minutes} min");
 
     /// <summary>For the exports: "Up · 3 ms", "Down since 10:42".</summary>
     private string WatchExportText(Device d)
@@ -2556,7 +2595,7 @@ public sealed class MainForm : Form
         lock (s)
             return s.Health switch
             {
-                Health.Up => s.Ms is { } ms ? $"Up · {Ms(ms)}" : "Up",
+                Health.Up => s.Ms is { } ms ? $"Up · {(ms < 1 ? "<1 ms" : $"{ms} ms")}" : "Up",
                 Health.Down => $"Down since {(s.Since.Date == DateTime.Today ? s.Since.ToString("HH:mm") : s.Since.ToString("yyyy-MM-dd HH:mm"))}",
                 _ => "Checking",
             };
@@ -2601,7 +2640,7 @@ public sealed class MainForm : Form
             }
         }
         foreach (var w in _watchList.Where(w => !seen.Contains(w.Ip)))
-            picks.Add(new Dialogs.WatchPick(w.Ip, w.Mac, w.Name, "(not in the list now)", "", "", true));
+            picks.Add(new Dialogs.WatchPick(w.Ip, w.Mac, w.Name, T("(not in the list now)"), "", "", true));
         var choice = Dialogs.AskWatch(this, picks, _settings.WatchSeconds, _settings.WatchSound);
         if (choice == null) return;
         SetWatchList(choice.Devices.Select(p => new WatchItem { Ip = p.Ip, Mac = p.Mac, Name = p.Name.Length > 0 ? p.Name : p.Model }).ToList(), choice.Seconds, choice.Sound);
@@ -2681,12 +2720,12 @@ public sealed class MainForm : Form
         if (now == Health.Down)
         {
             _downSince[s.Ip] = since;
-            Alert(s.Ip, $"Down: {label}", before == Health.Unknown ? "It does not answer." : $"Stopped answering at {since:HH:mm}.", bad: true);
+            Alert(s.Ip, T($"Down: {label}"), before == Health.Unknown ? T("It does not answer.") : T($"Stopped answering at {since:HH:mm}."), bad: true);
         }
         else if (now == Health.Up && before == Health.Down)
         {
-            var was = _downSince.Remove(s.Ip, out var t) ? $" It was down for {Took(since - t)}." : "";
-            Alert(s.Ip, $"Back up: {label}", $"Answers again{(ms is { } m ? $" ({Ms(m)})" : "")}.{was}", bad: false);
+            var was = _downSince.Remove(s.Ip, out var t) ? T($" It was down for {Took(since - t)}.") : "";
+            Alert(s.Ip, T($"Back up: {label}"), T($"Answers again{(ms is { } m ? $" ({Ms(m)})" : "")}.{was}"), bad: false);
         }
     }
 
@@ -2710,8 +2749,8 @@ public sealed class MainForm : Form
             _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowFromTray(null); };
             _tray.BalloonTipClicked += (_, _) => ShowFromTray(_trayIp);
             var menu = new ContextMenuStrip { Renderer = _renderer };
-            menu.Items.Add("Open NetFinder", null, (_, _) => ShowFromTray(null));
-            menu.Items.Add("Watch devices…", null, (_, _) => { ShowFromTray(null); PickWatched(); });
+            menu.Items.Add(T("Open NetFinder"), null, (_, _) => ShowFromTray(null));
+            menu.Items.Add(T("Watch devices…"), null, (_, _) => { ShowFromTray(null); PickWatched(); });
             _tray.ContextMenuStrip = menu;
         }
         _tray.Visible = true;
@@ -2722,7 +2761,7 @@ public sealed class MainForm : Form
     {
         if (_tray == null) return;
         var down = _watcher.States.Count(x => { lock (x) return x.Health == Health.Down; });
-        var t = $"{AppInfo.Name}: watching {_watchList.Count} device(s)" + (down > 0 ? $", {down} down" : "");
+        var t = T($"{AppInfo.Name}: watching {_watchList.Count} device(s)") + (down > 0 ? T($", {down} down") : "");
         _tray.Text = t.Length > 63 ? t[..63] : t;
     }
 
@@ -2757,7 +2796,7 @@ public sealed class MainForm : Form
 
     // ───────────────────────────── export helpers ─────────────────────────────
 
-    private string ExportTitle() => $"Network devices – {(_demo ? "IT-DESK01" : Environment.MachineName)} – {DateTime.Now:yyyy-MM-dd HH:mm}";
+    private string ExportTitle() => $"Network devices – {(_demo ? "IT-DESK01" : Environment.MachineName)} – {DateTime.Now:yyyy-MM-dd HH:mm}"; // exports stay in English
 
     /// <summary>Arabic / Hebrew text for the PDF: drawn by Windows (joined letters, right to left) as a sharp picture.</summary>
     private static Core.Export.PdfReport.Picture? PdfPicture(string text, double sizePt, bool bold)
@@ -2801,16 +2840,16 @@ public sealed class MainForm : Form
         if (!reachable)
         {
             string? nvr; lock (d) nvr = d.BehindNvr;
-            if (nvr != null) { MessageBox.Show(this, $"{ip} is a camera on NVR {nvr}; its model comes from the NVR (Show cameras on the NVR).", AppInfo.Name); return; }
-            if (MessageBox.Show(this, $"{ip} is on another subnet. Add a temporary IP in its subnet to ask it?", AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            if (nvr != null) { Ui.Box(this, T($"{ip} is a camera on NVR {nvr}; its model comes from the NVR (Show cameras on the NVR)."), AppInfo.Name); return; }
+            if (Ui.Box(this, T($"{ip} is on another subnet. Add a temporary IP in its subnet to ask it?"), AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             if (!await MakeReachableAsync(d)) return;
         }
-        _stState.Text = $"Asking {ip} for its model…";
+        _stState.Text = T($"Asking {ip} for its model…");
         await CheckPortsAsync(d, force: true);
         string? model, src;
         lock (d) { model = d.Model; src = d.ModelSource; }
-        _stState.Text = model != null ? $"{ip}: {model}  (from {src})" :
-            $"{ip} did not tell its model." + (LooksWindowsLocked(d) ? " It looks like a Windows PC: try \"Get model with Windows login\"." : "");
+        _stState.Text = model != null ? T($"{ip}: {model}  (from {src})") :
+            T($"{ip} did not tell its model.") + (LooksWindowsLocked(d) ? T(" It looks like a Windows PC: try \"Get model with Windows login\".") : "");
     }
 
     private static bool LooksWindowsLocked(Device d) { lock (d) return LooksWindows(d); }
@@ -2835,7 +2874,7 @@ public sealed class MainForm : Form
     {
         lock (d)
         {
-            if (d.IsSelf) return "This PC";
+            if (d.IsSelf) return T("This PC");
             var v = d.Info.GetValueOrDefault("Manufacturer") ?? d.Vendor;
             var maker = v == null || v.StartsWith('(') ? null
                 : Regex.IsMatch(v, @"^(hewlett|hp\b)", RegexOptions.IgnoreCase) ? "HP" : Regex.Match(v, @"^[A-Za-z0-9\-]+").Value;
@@ -2851,15 +2890,15 @@ public sealed class MainForm : Form
     {
         var l = new List<string>();
         if (i.Cpu != null) l.Add("CPU " + i.Cpu);
-        if (i.RamBytes is > 0) l.Add($"RAM {Math.Round(i.RamBytes.Value / 1073741824.0)} GB");
+        if (i.RamBytes is > 0) l.Add(T($"RAM {Math.Round(i.RamBytes.Value / 1073741824.0)} GB"));
         if (i.Disks != null)
         {
             var disks = SplitDisks(i.Disks);
-            l.AddRange(disks.Count > 1 ? disks.Select((x, n) => $"Disk {n + 1}: {x}") : disks.Select(x => "Disk: " + x));
+            l.AddRange(disks.Count > 1 ? disks.Select((x, n) => T($"Disk {n + 1}: {x}")) : disks.Select(x => T("Disk: ") + x));
         }
-        else l.Add("Disk: not reported");
+        else l.Add(T("Disk: not reported"));
         if (i.Drives != null) l.AddRange(SplitDisks(i.Drives));
-        if (i.Graphics != null) l.Add("Graphics: " + i.Graphics);
+        if (i.Graphics != null) l.Add(T("Graphics: ") + i.Graphics);
         return l.Count == 0 ? null : string.Join("  ·  ", l);
     }
 
@@ -2898,12 +2937,12 @@ public sealed class MainForm : Form
         bool reachable; lock (d) reachable = d.Reachable || self;
         if (!reachable)
         {
-            var r = MessageBox.Show(this, $"{ip} is on another subnet. Add a temporary IP in its subnet first?", AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+            var r = Ui.Box(this, T($"{ip} is on another subnet. Add a temporary IP in its subnet first?"), AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
             if (r != DialogResult.OK || !await MakeReachableAsync(d)) return;
         }
         UseWaitCursor = true;
-        var who = self ? "This PC" : ip!.ToString();
-        _stState.Text = $"Reading the model of {(self ? "this PC" : who)} from Windows…";
+        var who = self ? T("This PC") : ip!.ToString();
+        _stState.Text = T($"Reading the model of {(self ? T("this PC") : who)} from Windows…");
         try
         {
             var session = new WindowsLoginSession(self ? null : _winLogin?.User, _winLogin?.Password, DomainHint(), _engine.Log);
@@ -2911,7 +2950,7 @@ public sealed class MainForm : Form
             _engine.Store.Touch(d, x => { res.Info.ApplyTo(x); x.Info.Remove("Windows status"); });
             _engine.Log($"Windows {who}: {res.Info.Model ?? "model not reported"} (via {res.Info.Via}, login {res.Login}{(res.Note != null ? "; " + res.Note : "")})");
             if (HardwareLine(res.Info) is { } hwLine) _engine.Log($"Windows {who}: {hwLine}");
-            _stState.Text = $"{who}: {res.Info.Model ?? "model not reported"}";
+            _stState.Text = $"{who}: {res.Info.Model ?? T("model not reported")}";
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -2919,13 +2958,14 @@ public sealed class MainForm : Form
             var kind = ex is WinReadException w ? w.Kind : WinFail.Other;
             _engine.Log($"Windows {who}: {ex.Message}");
             if (StatusFor(kind, true, true, ex.Message) is { } st) _engine.Store.Touch(d, x => x.Info["Windows status"] = st);
-            _stState.Text = "Could not read the Windows model: " + ex.Message.Split('\n')[0];
-            MessageBox.Show(this, $"{who}: {ex.Message}.\n\n{WindowsAdvice(kind, single: true)}", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _stState.Text = T("Could not read the Windows model: ") + ex.Message.Split('\n')[0];
+            Ui.Box(this, $"{who}: {ex.Message}.\n\n{WindowsAdvice(kind, single: true)}", AppInfo.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally { UseWaitCursor = false; }
     }
 
-    /// <summary>The short reason shown in the Model column when Windows could not be read, or null.</summary>
+    /// <summary>The short reason shown in the Model column when Windows could not be read, or null (kept in English in the
+    /// device info, shown translated).</summary>
     private static string? StatusFor(WinFail kind, bool seen, bool evidence, string message) => kind switch
     {
         WinFail.Closed when !seen => "Turned off?",
@@ -2936,11 +2976,11 @@ public sealed class MainForm : Form
         _ => message.StartsWith("skipped") ? null : "Could not read it",
     };
 
-    private const string WmiFirewallGpo =
+    private static string WmiFirewallGpo => T(
         "On the domain controller (Group Policy Management), in a policy linked to the PCs:\n" +
         "Computer Configuration › Policies › Windows Settings › Security Settings › Windows Defender Firewall with Advanced Security › " +
         "Inbound Rules › New Rule › Predefined: \"Windows Management Instrumentation (WMI)\" (or \"File and Printer Sharing\", port 445) › tick all › Allow the connection.\n" +
-        "Then run gpupdate /force on the PCs (or restart them) and try again.";
+        "Then run gpupdate /force on the PCs (or restart them) and try again.");
 
     /// <summary>Run once as administrator on a PC whose firewall blocks remote management: turns on Windows' own WMI and file-sharing rules.</summary>
     /// <summary>Plain netsh lines: they work pasted into Command Prompt or PowerShell alike (the group names are the English Windows ones).</summary>
@@ -2954,13 +2994,13 @@ public sealed class MainForm : Form
     private static string WindowsAdvice(WinFail kind, bool single) => kind switch
     {
         WinFail.Closed or WinFail.Blocked =>
-            (single ? "Its firewall blocks remote management. " : "Their firewall blocks remote management. ") +
-            $"Open it once on {(single ? "that PC" : "each of them")}: Command Prompt as administrator there, then run these two lines (they are also in the Log tab):\n{string.Join("\n", AllowRemoteCommands)}\n" +
-            "If an antivirus has its own firewall, allow it there instead.\n\nFor all PCs at once instead: " + WmiFirewallGpo,
-        WinFail.BadLogin => "Check the user name and password. In a domain, write the user as DOMAIN\\user (e.g. ALMADA\\administrator) or user@domain.local.",
-        WinFail.AccessDenied or WinFail.NotAdmin => "Use an account that is administrator on that PC: a domain admin (DOMAIN\\user or user@domain.local), " +
-            "or the PC's own Administrator (PCNAME\\Administrator; Windows 10/11 block other local admin accounts remotely).",
-        _ => "Details are in the Log tab.",
+            (single ? T("Its firewall blocks remote management. ") : T("Their firewall blocks remote management. ")) +
+            T($"Open it once on {(single ? T("that PC") : T("each of them"))}: Command Prompt as administrator there, then run these two lines (they are also in the Log tab):\n{string.Join("\n", AllowRemoteCommands)}\n") +
+            T("If an antivirus has its own firewall, allow it there instead.\n\nFor all PCs at once instead: ") + WmiFirewallGpo,
+        WinFail.BadLogin => T("Check the user name and password. In a domain, write the user as DOMAIN\\user (e.g. ALMADA\\administrator) or user@domain.local."),
+        WinFail.AccessDenied or WinFail.NotAdmin => T("Use an account that is administrator on that PC: a domain admin (DOMAIN\\user or user@domain.local), " +
+            "or the PC's own Administrator (PCNAME\\Administrator; Windows 10/11 block other local admin accounts remotely)."),
+        _ => T("Details are in the Log tab."),
     };
 
     /// <summary>
@@ -2970,7 +3010,7 @@ public sealed class MainForm : Form
     private async Task GetModelsForAllAsync()
     {
         var all = _engine.Store.All.Where(d => { lock (d) return d.Ip != null || d.IsSelf; }).ToList();
-        if (all.Count == 0) { MessageBox.Show(this, "The list is empty. Press Scan first.", AppInfo.Name); return; }
+        if (all.Count == 0) { Ui.Box(this, T("The list is empty. Press Scan first."), AppInfo.Name); return; }
         int other, win;
         other = all.Count(d => { lock (d) return !d.Reachable && !d.IsSelf && d.BehindNvr == null; });
         win = all.Count(d => { lock (d) return WindowsCandidate(d); });
@@ -2980,7 +3020,7 @@ public sealed class MainForm : Form
 
         _modelsCts = new CancellationTokenSource();
         var ct = _modelsCts.Token;
-        _btnModels.Text = "Stop models";
+        _btnModels.Text = T("Stop models");
         FitHeader();
         _stProgress.Visible = true;
         int done = 0, found = 0, windowsOk = 0;
@@ -2991,7 +3031,7 @@ public sealed class MainForm : Form
         var session = opt.Login != null ? new WindowsLoginSession(opt.Login.User, opt.Login.Password, DomainHint(), _engine.Log) { AllowServiceStart = opt.StartRemoteRegistry } : null;
         var selfSession = new WindowsLoginSession(null, null, null, _engine.Log);
         if (session != null)
-            _engine.Log("Get models: Windows login " + (session.User == null ? "= this PC's own login" : $"\"{session.User}\", trying {string.Join(", ", session.Spellings.Select(s => $"\"{s}\""))}"));
+            _engine.Log("Get models: Windows login " + (session.User == null ? T("= this PC's own login") : T($"\"{session.User}\", trying {string.Join(", ", session.Spellings.Select(s => $"\"{s}\""))}")));
         try
         {
             // 1) one temporary IP per other range
@@ -3002,7 +3042,7 @@ public sealed class MainForm : Form
                 foreach (var g in groups)
                 {
                     ct.ThrowIfCancellationRequested();
-                    _stState.Text = $"Adding a temporary IP for {g.Key}…";
+                    _stState.Text = T($"Adding a temporary IP for {g.Key}…");
                     var (ok, msg) = await _reach.MakeReachableAsync(g.First());
                     if (!ok) errors.Add($"{g.Key}: {msg.Split('\n')[0]}");
                 }
@@ -3011,7 +3051,7 @@ public sealed class MainForm : Form
             // 2) check the Windows login once, on a domain PC, before using it on dozens of PCs
             if (session?.User != null)
             {
-                _stState.Text = "Checking the Windows login…";
+                _stState.Text = T("Checking the Windows login…");
                 foreach (var host in LoginCheckHosts(session.User))
                 {
                     try { if (await session.CheckAsync(host, ct)) break; }
@@ -3068,34 +3108,34 @@ public sealed class MainForm : Form
                         }
                     }
                     string? model, src, type; string openPorts;
-                    lock (d) { model = d.Model; src = d.ModelSource; type = d.EffectiveType; openPorts = d.OpenPorts.Count == 0 ? "none" : string.Join(", ", d.OpenPorts.OrderBy(p => p)); }
+                    lock (d) { model = d.Model; src = d.ModelSource; type = d.EffectiveType; openPorts = d.OpenPorts.Count == 0 ? T("none") : string.Join(", ", d.OpenPorts.OrderBy(p => p)); }
                     if (model != null) Interlocked.Increment(ref found);
                     // one line per device, so the Log tab of each device says what "Get models" found there
                     if (!askedWindows && !self && ip != null)
                         _engine.Log(model != null ? $"Get models {ip}: {model} (from {src})"
                             : $"Get models {ip}: it did not tell its model ({type}; open ports: {openPorts})" +
-                              (isWin && session == null ? "; it may be a Windows PC: tick \"Use a Windows login\" to read it" : ""));
+                              (isWin && session == null ? T("; it may be a Windows PC: tick \"Use a Windows login\" to read it") : ""));
                 }
                 finally
                 {
                     sem.Release();
                     var n = Interlocked.Increment(ref done);
-                    if (!IsDisposed) _stState.Text = $"Getting models… {n}/{targets.Count}";
+                    if (!IsDisposed) _stState.Text = T($"Getting models… {n}/{targets.Count}");
                 }
             }));
             foreach (var e in errors) _engine.Log("Get models: " + e);
             var winFailed = winFails.Values.Sum(v => v.Count) + silent.Count + noSign.Count;
-            _stState.Text = $"Models: {found} of {targets.Count} devices have a model" +
-                            (windowsOk + winFailed > 0 ? $"  ·  Windows PCs: {windowsOk} read, {winFailed} not" : "") +
-                            (errors.Count + winFailed > 0 ? "  ·  details in the Log tab" : "");
+            _stState.Text = T($"Models: {found} of {targets.Count} devices have a model") +
+                            (windowsOk + winFailed > 0 ? T($"  ·  Windows PCs: {windowsOk} read, {winFailed} not") : "") +
+                            (errors.Count + winFailed > 0 ? T("  ·  details in the Log tab") : "");
             _stExport.Visible = true;
             if (winFailed + silent.Count + noSign.Count > 0) ShowWindowsSummary(windowsOk, winFails, silent, noSign, session?.StopReason);
         }
-        catch (OperationCanceledException) { _stState.Text = $"Get models stopped ({done} done)."; }
+        catch (OperationCanceledException) { _stState.Text = T($"Get models stopped ({done} done)."); }
         finally
         {
             _modelsCts.Dispose(); _modelsCts = null;
-            _btnModels.Text = "Get models";
+            _btnModels.Text = T("Get models");
             FitHeader();
             _stProgress.Visible = _scanCts != null;
         }
@@ -3111,14 +3151,14 @@ public sealed class MainForm : Form
         var denied = Get(WinFail.AccessDenied, WinFail.NotAdmin);
         var bad = Get(WinFail.BadLogin);
         var otherFail = Get(WinFail.Other);
-        var lines = new List<string> { $"Windows PCs read: {ok}." };
-        if (closed.Count > 0) lines.Add($"{closed.Count} PC(s) block every remote-management port (135 and 445 closed): {Ips(closed)}");
-        if (blocked.Count > 0) lines.Add($"{blocked.Count} PC(s) answer, but their firewall blocks WMI: {Ips(blocked)}");
-        if (denied.Count > 0) lines.Add($"{denied.Count} PC(s) refused the login (not an administrator there?): {Ips(denied)}");
-        if (bad.Count > 0) lines.Add(stopReason ?? $"{bad.Count} PC(s): wrong user name or password: {Ips(bad)}");
-        if (otherFail.Count > 0) lines.Add($"{otherFail.Count} PC(s) failed for another reason: {Ips(otherFail)}");
-        if (noSign.Count > 0) lines.Add($"{noSign.Count} device(s) with a PC maker's network card answer, but 135 and 445 are closed and nothing says Windows (a firewall that blocks everything, or not a PC): {Ips(noSign)}");
-        if (silent.Count > 0) lines.Add($"{silent.Count} device(s) did not answer at all: they are only in Windows' ARP table (turned off?). Run Get models again while they are on: {Ips(silent)}");
+        var lines = new List<string> { T($"Windows PCs read: {ok}.") };
+        if (closed.Count > 0) lines.Add(T($"{closed.Count} PC(s) block every remote-management port (135 and 445 closed): {Ips(closed)}"));
+        if (blocked.Count > 0) lines.Add(T($"{blocked.Count} PC(s) answer, but their firewall blocks WMI: {Ips(blocked)}"));
+        if (denied.Count > 0) lines.Add(T($"{denied.Count} PC(s) refused the login (not an administrator there?): {Ips(denied)}"));
+        if (bad.Count > 0) lines.Add(stopReason ?? T($"{bad.Count} PC(s): wrong user name or password: {Ips(bad)}"));
+        if (otherFail.Count > 0) lines.Add(T($"{otherFail.Count} PC(s) failed for another reason: {Ips(otherFail)}"));
+        if (noSign.Count > 0) lines.Add(T($"{noSign.Count} device(s) with a PC maker's network card answer, but 135 and 445 are closed and nothing says Windows (a firewall that blocks everything, or not a PC): {Ips(noSign)}"));
+        if (silent.Count > 0) lines.Add(T($"{silent.Count} device(s) did not answer at all: they are only in Windows' ARP table (turned off?). Run Get models again while they are on: {Ips(silent)}"));
         foreach (var l in lines) _engine.Log("Windows summary: " + l);
         if (closed.Count + blocked.Count + noSign.Count > 0)
         {
@@ -3130,8 +3170,8 @@ public sealed class MainForm : Form
         if (stopReason != null || bad.Count > 0) advice.Add(WindowsAdvice(WinFail.BadLogin, false));
         else if (denied.Count > 0) advice.Add(WindowsAdvice(WinFail.AccessDenied, false));
         if (closed.Count + blocked.Count + noSign.Count > 0) advice.Add(WindowsAdvice(WinFail.Blocked, false));
-        MessageBox.Show(this, string.Join("\n", lines) + "\n\n" + string.Join("\n\n", advice) + "\n\nThe result for each PC is in the Log tab.",
-            AppInfo.Name + " – Windows models", MessageBoxButtons.OK, ok == 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+        Ui.Box(this, string.Join("\n", lines) + "\n\n" + string.Join("\n\n", advice) + T("\n\nThe result for each PC is in the Log tab."),
+            AppInfo.Name + T(" – Windows models"), MessageBoxButtons.OK, ok == 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
     }
 
     private void OnClosing(object? sender, FormClosingEventArgs e)

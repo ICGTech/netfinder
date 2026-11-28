@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using NetFinder.Core;
 using NetFinder.Core.Model;
 using NetFinder.Core.Net;
+using static NetFinder.Core.Text.L;
 
 namespace NetFinder.Ui;
 
@@ -30,7 +31,24 @@ internal static class Ink
         p.Supplies.Any(s => s.IsColorant) ? p.Supplies.Where(s => s.IsColorant).ToList() : p.Supplies;
 
     /// <summary>"62%", "OK", "Unknown" (a waste box: "35% full").</summary>
-    public static string Level(PrinterSupply s) => s.Percent is { } p ? s.FillsUp ? $"{p}% full" : $"{p}%" : s.State;
+    public static string Level(PrinterSupply s) => s.Percent is { } p ? s.FillsUp ? T($"{p}% full") : $"{p}%" : T(s.State);
+
+    /// <summary>"Black toner 45%" in the window's language.</summary>
+    public static string Text(PrinterSupply s) => Name(s) + " " + Level(s);
+
+    /// <summary>"Black toner", "Drum (cyan)", "Waste toner box" in the window's language (the names are made in English by the SNMP reader).</summary>
+    public static string Name(PrinterSupply s)
+    {
+        var m = Regex.Match(s.Name, @"^(?<c>[A-Z][a-z]+(?: [a-z]+)?) (?<k>toner|ink|ribbon|wax)$");
+        if (m.Success)
+        {
+            var c = T(m.Groups["c"].Value);
+            return m.Groups["k"].Value switch { "toner" => T($"{c} toner"), "ink" => T($"{c} ink"), "ribbon" => T($"{c} ribbon"), _ => T($"{c} wax") };
+        }
+        m = Regex.Match(s.Name, @"^(?<k>Drum|Developer) \((?<c>[a-z ]+)\)$");
+        if (m.Success) return T(m.Groups["k"].Value) + " (" + T(char.ToUpperInvariant(m.Groups["c"].Value[0]) + m.Groups["c"].Value[1..]) + ")";
+        return T(s.Name);
+    }
 
     /// <summary>Paints "● 62%  ● 18%  ● 9%  ● OK" in a list cell (low ones in red).</summary>
     public static void PaintCell(Graphics g, Rectangle cell, PrinterState p, Func<int, int> Sx)
@@ -173,27 +191,27 @@ internal static class PortPeople
             lock (d)
             {
                 var name = d.DisplayName.Length > 0 ? d.DisplayName + " " : "";
-                return $"{name}{d.Ip} ({(d.IsSelf ? "this PC" : d.EffectiveType)})" + (l.Count > 1 ? $" +{l.Count - 1} IP" : "");
+                return $"{name}{d.Ip} ({(d.IsSelf ? T("this PC") : T(d.EffectiveType))})" + (l.Count > 1 ? T($" +{l.Count - 1} IP") : "");
             }
         }
         var vendor = OuiLookup.Lookup(mac);
-        return $"MAC {mac}" + (string.IsNullOrEmpty(vendor) ? "" : $" ({Core.Export.DeviceText.ShortVendor(vendor)})");
+        return T($"MAC {mac}") + (string.IsNullOrEmpty(vendor) ? "" : $" ({Core.Export.DeviceText.ShortVendor(vendor)})");
     }
 
     public static string Tip(SwitchPort p, Dictionary<string, List<Device>> byMac)
     {
         var sb = new StringBuilder();
-        sb.Append($"Port {p.Name} · {p.StatusText}");
+        sb.Append(T($"Port {p.Name} · {T(p.StatusText)}"));
         if (p.SpeedText.Length > 0) sb.Append($" · {p.SpeedText}");
         if (p.Alias != null) sb.Append($"\n\"{p.Alias}\"");
-        if (p.Vlans.Count > 0) sb.Append($"\nVLAN {string.Join(", ", p.Vlans)}");
+        if (p.Vlans.Count > 0) sb.Append(T($"\nVLAN {string.Join(", ", p.Vlans)}"));
         if (p.Macs.Count > 0)
         {
-            sb.Append(p.Macs.Count >= 3 ? $"\n{p.Macs.Count} devices (another switch or a Wi-Fi access point):" : "\n");
+            sb.Append(p.Macs.Count >= 3 ? T($"\n{p.Macs.Count} devices (another switch or a Wi-Fi access point):") : "\n");
             foreach (var m in p.Macs.Take(8)) sb.Append("\n• " + Who(m, byMac));
-            if (p.Macs.Count > 8) sb.Append($"\n… and {p.Macs.Count - 8} more");
+            if (p.Macs.Count > 8) sb.Append(T($"\n… and {p.Macs.Count - 8} more"));
         }
-        else if (p.Up) sb.Append("\nLink up, no device learned yet");
+        else if (p.Up) sb.Append(T("\nLink up, no device learned yet"));
         return sb.ToString();
     }
 }
@@ -204,7 +222,7 @@ internal sealed class SwitchPortsForm : Form
     private readonly DataGridView _grid = new();
     private readonly Label _head = new() { AutoSize = true, Font = Theme.HeaderBold, UseMnemonic = false };
     private readonly Label _note = new() { AutoSize = true, UseMnemonic = false };
-    private readonly CheckBox _inUse = new() { Text = "Only ports with a device", AutoSize = true };
+    private readonly CheckBox _inUse = new() { Text = T("Only ports with a device"), AutoSize = true };
     private readonly Action<Device> _select;
     private readonly List<(SwitchPort Port, string Who, string All, int Count)> _rows = new();
     private readonly string _title;
@@ -216,7 +234,7 @@ internal sealed class SwitchPortsForm : Form
         lock (sw) { st = sw.Switch!; ip = sw.Ip?.ToString() ?? ""; name = sw.DisplayName; model = sw.Model ?? ""; }
         var byMac = PortPeople.ByMac(all);
         _title = name.Length > 0 && name != model ? $"{name} ({ip})" : ip;
-        Text = $"Ports of switch {_title}";
+        Text = T($"Ports of switch {_title}");
         Font = Theme.Base;
         Icon = Theme.AppIcon();
         StartPosition = FormStartPosition.CenterParent;
@@ -232,14 +250,14 @@ internal sealed class SwitchPortsForm : Form
         foreach (var p in st.Ports)
         {
             var who = p.Macs.Select(m => PortPeople.Who(m, byMac)).ToList();
-            var shown = who.Count <= 2 ? string.Join(", ", who) : $"{p.Macs.Count} devices: " + string.Join(", ", who.Take(2)) + ", …";
+            var shown = who.Count <= 2 ? string.Join(", ", who) : T($"{p.Macs.Count} devices: ") + string.Join(", ", who.Take(2)) + ", …";
             _rows.Add((p, shown, string.Join("\n", who), p.Macs.Count));
         }
 
         _head.Text = $"{_title}{(model.Length > 0 ? "  ·  " + model : "")}";
         _head.ForeColor = P.Text;
-        _note.Text = $"{st.Up} of {st.Ports.Count} ports up  ·  {st.MacCount} devices learned  ·  read {st.ReadAt:HH:mm}.  " +
-                     "A port with several devices leads to another switch or a Wi-Fi access point. Double-click a row to pick its device in the list.";
+        _note.Text = T($"{st.Up} of {st.Ports.Count} ports up  ·  {st.MacCount} devices learned  ·  read {st.ReadAt:HH:mm}.  " +
+                     $"A port with several devices leads to another switch or a Wi-Fi access point. Double-click a row to pick its device in the list.");
         _note.ForeColor = P.Muted;
         _inUse.ForeColor = P.Text;
         _inUse.CheckedChanged += (_, _) => Fill();
@@ -254,9 +272,9 @@ internal sealed class SwitchPortsForm : Form
         Resize += (_, _) => _note.MaximumSize = new Size(Math.Max(100, ClientSize.Width - LogicalToDeviceUnits(30)), 0);
 
         var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(LogicalToDeviceUnits(10), LogicalToDeviceUnits(6), LogicalToDeviceUnits(10), LogicalToDeviceUnits(8)), BackColor = P.Surface };
-        var copy = new Button { Text = "Copy list", AutoSize = true, UseVisualStyleBackColor = true };
-        var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel, UseVisualStyleBackColor = true };
-        copy.Click += (_, _) => { Clipboard.SetText(ListText()); copy.Text = "Copied"; };
+        var copy = new Button { Text = T("Copy list"), AutoSize = true, UseVisualStyleBackColor = true };
+        var close = new Button { Text = T("Close"), AutoSize = true, DialogResult = DialogResult.Cancel, UseVisualStyleBackColor = true };
+        copy.Click += (_, _) => { Clipboard.SetText(ListText()); copy.Text = T("Copied"); };
         bottom.Controls.AddRange(new Control[] { copy, close });
         CancelButton = close;
 
@@ -304,13 +322,13 @@ internal sealed class SwitchPortsForm : Form
             if (fill) { c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; c.MinimumWidth = line * 8; }
             _grid.Columns.Add(c);
         }
-        Col("Port", "Port", 5);
-        Col("Status", "Status", 5);
-        Col("Speed", "Speed", 5);
-        Col("Alias", "Description", 9);
-        Col("Vlan", "VLAN", 4);
-        Col("Count", "Devices", 4);
-        Col("Who", "Plugged in", 20, fill: true);
+        Col("Port", T("Port"), 5);
+        Col("Status", T("Status"), 5);
+        Col("Speed", T("Speed"), 5);
+        Col("Alias", T("Description"), 9);
+        Col("Vlan", T("VLAN"), 4);
+        Col("Count", T("Devices"), 4);
+        Col("Who", T("Plugged in"), 20, fill: true);
         _grid.CellDoubleClick += (_, e) =>
         {
             if (e.RowIndex < 0 || _grid.Rows[e.RowIndex].Tag is not SwitchPort p || p.Macs.Count == 0) return;
@@ -330,7 +348,7 @@ internal sealed class SwitchPortsForm : Form
         foreach (var (p, who, all, count) in _rows)
         {
             if (_inUse.Checked && count == 0) continue;
-            var i = _grid.Rows.Add(p.Name, p.StatusText, p.SpeedText, p.Alias ?? "", string.Join(",", p.Vlans), count == 0 ? "" : count.ToString(), who);
+            var i = _grid.Rows.Add(p.Name, T(p.StatusText), p.SpeedText, p.Alias ?? "", string.Join(",", p.Vlans), count == 0 ? "" : count.ToString(), who);
             var row = _grid.Rows[i];
             row.Tag = p;
             row.Cells["Status"].Style.ForeColor = p.Disabled ? P.Muted : p.Up ? P.Good : P.Muted;
@@ -343,10 +361,10 @@ internal sealed class SwitchPortsForm : Form
     private string ListText()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Switch {_title}");
-        sb.AppendLine("Port\tStatus\tSpeed\tDescription\tVLAN\tDevices\tPlugged in");
+        sb.AppendLine(T($"Switch {_title}"));
+        sb.AppendLine(T("Port\tStatus\tSpeed\tDescription\tVLAN\tDevices\tPlugged in"));
         foreach (var (p, _, all, count) in _rows)
-            sb.AppendLine(string.Join("\t", p.Name, p.StatusText, p.SpeedText, p.Alias, string.Join(",", p.Vlans), count, all.Replace("\n", "; ")));
+            sb.AppendLine(string.Join("\t", p.Name, T(p.StatusText), p.SpeedText, p.Alias, string.Join(",", p.Vlans), count, all.Replace("\n", "; ")));
         return sb.ToString();
     }
 }

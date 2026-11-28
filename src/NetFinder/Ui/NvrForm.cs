@@ -3,6 +3,7 @@ using System.Text;
 using NetFinder.Core;
 using NetFinder.Core.Model;
 using NetFinder.Core.Nvr;
+using static NetFinder.Core.Text.L;
 
 namespace NetFinder.Ui;
 
@@ -21,12 +22,12 @@ internal sealed class NvrForm : Form
     private readonly ComboBox _brand = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
     private readonly TextBox _user = new() { Width = 160, Text = "admin" };
     private readonly TextBox _pass = new() { Width = 160, UseSystemPasswordChar = true };
-    private readonly Button _connect = new() { Text = "Show cameras", AutoSize = true, Font = Theme.Bold, BackColor = Theme.Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Padding = new Padding(10, 3, 10, 3) };
+    private readonly Button _connect = new() { Text = T("Show cameras"), AutoSize = true, Font = Theme.Bold, BackColor = Theme.Accent, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Padding = new Padding(10, 3, 10, 3) };
     private readonly Label _status = new() { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(0, 6, 0, 6), MaximumSize = new Size(900, 0) };
     private readonly DataGridView _grid = new();
-    private readonly Button _copy = new() { Text = "Copy list", AutoSize = true, Enabled = false };
-    private readonly Button _openCam = new() { Text = "Open camera", AutoSize = true, Enabled = false };
-    private readonly Button _openNvr = new() { Text = "Open NVR web page", AutoSize = true };
+    private readonly Button _copy = new() { Text = T("Copy list"), AutoSize = true, Enabled = false };
+    private readonly Button _openCam = new() { Text = T("Open camera"), AutoSize = true, Enabled = false };
+    private readonly Button _openNvr = new() { Text = T("Open NVR web page"), AutoSize = true };
     private NvrResult? _result;
     private CancellationTokenSource? _cts;
 
@@ -40,7 +41,7 @@ internal sealed class NvrForm : Form
         SortedSet<int> ports;
         lock (nvr) { ip = nvr.Ip?.ToString() ?? ""; title = nvr.DisplayName; ports = new SortedSet<int>(nvr.OpenPorts); }
 
-        Text = $"Cameras on NVR {ip}" + (title.Length > 0 ? $"  ({title})" : "");
+        Text = T($"Cameras on NVR {ip}") + (title.Length > 0 ? $"  ({title})" : "");
         Font = Theme.Base;
         Icon = Theme.AppIcon();
         StartPosition = FormStartPosition.CenterParent;
@@ -50,7 +51,7 @@ internal sealed class NvrForm : Form
         ShowInTaskbar = false;
 
         _address.Text = DefaultAddress(ip, ports);
-        _brand.Items.AddRange(new object[] { "Automatic", "Hikvision  (HiLook, Annke, LTS…)", "Dahua  (Amcrest, Imou, Lorex, CP Plus…)" });
+        _brand.Items.AddRange(new object[] { T("Automatic"), "Hikvision  (HiLook, Annke, LTS…)", "Dahua  (Amcrest, Imou, Lorex, CP Plus…)" });
         _brand.SelectedIndex = 0;
         _connect.FlatAppearance.BorderSize = 0;
         _connect.Click += async (_, _) => await ConnectAsync();
@@ -59,13 +60,13 @@ internal sealed class NvrForm : Form
         // login box
         var login = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 5, Padding = new Padding(14, 12, 14, 0) };
         Label L(string t) => new() { Text = t, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 8, 6, 0) };
-        login.Controls.Add(L("NVR address:"), 0, 0);
+        login.Controls.Add(L(T("NVR address:")), 0, 0);
         login.Controls.Add(_address, 1, 0);
-        login.Controls.Add(L("Brand:"), 2, 0);
+        login.Controls.Add(L(T("Brand:")), 2, 0);
         login.Controls.Add(_brand, 3, 0);
-        login.Controls.Add(L("User:"), 0, 1);
+        login.Controls.Add(L(T("User:")), 0, 1);
         login.Controls.Add(_user, 1, 1);
-        login.Controls.Add(L("Password:"), 2, 1);
+        login.Controls.Add(L(T("Password:")), 2, 1);
         var passRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
         passRow.Controls.Add(_pass);
         _connect.Margin = new Padding(10, 0, 0, 0);
@@ -73,8 +74,8 @@ internal sealed class NvrForm : Form
         login.Controls.Add(passRow, 3, 1);
         var note = new Label
         {
-            Text = "The user and password of the NVR (the ones you use on its web page). The password is not saved. " +
-                   "Careful: after a few wrong passwords the NVR locks this user for a while (often 30 minutes).",
+            Text = T("The user and password of the NVR (the ones you use on its web page). The password is not saved. " +
+                   "Careful: after a few wrong passwords the NVR locks this user for a while (often 30 minutes)."),
             AutoSize = true, MaximumSize = new Size(1000, 0), ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(0, 8, 0, 0),
         };
         login.Controls.Add(note, 0, 2);
@@ -85,7 +86,7 @@ internal sealed class NvrForm : Form
         BuildGrid();
 
         var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(10, 6, 10, 8), FlowDirection = FlowDirection.LeftToRight };
-        var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel };
+        var close = new Button { Text = T("Close"), AutoSize = true, DialogResult = DialogResult.Cancel };
         _copy.Click += (_, _) => CopyList();
         _openCam.Click += (_, _) => OpenSelected();
         _openNvr.Click += (_, _) => _openUrl(_address.Text.Trim());
@@ -141,15 +142,15 @@ internal sealed class NvrForm : Form
             if (fill) { c.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; c.MinimumWidth = 120; }
             _grid.Columns.Add(c);
         }
-        Col("Ch", "Ch", 44);
-        Col("Name", "Camera name", 170, fill: true);
-        Col("Ip", "IP address", 120);
-        Col("Port", "Port", 60);
-        Col("Model", "Model", 170);
-        Col("Serial", "Serial number", 170);
-        Col("Mac", "MAC", 125);
-        Col("Status", "Status", 120);
-        Col("Net", "Open from this PC", 160);
+        Col("Ch", T("Ch"), 44);
+        Col("Name", T("Camera name"), 170, fill: true);
+        Col("Ip", T("IP address"), 120);
+        Col("Port", T("Port"), 60);
+        Col("Model", T("Model"), 170);
+        Col("Serial", T("Serial number"), 170);
+        Col("Mac", T("MAC"), 125);
+        Col("Status", T("Status"), 120);
+        Col("Net", T("Open from this PC"), 160);
         _grid.SelectionChanged += (_, _) => _openCam.Enabled = SelectedCamera()?.Ip != null;
         _grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) OpenSelected(); };
     }
@@ -160,16 +161,16 @@ internal sealed class NvrForm : Form
         if (!Uri.TryCreate(_address.Text.Trim().Contains("://") ? _address.Text.Trim() : "http://" + _address.Text.Trim(), UriKind.Absolute, out var uri) ||
             (uri.Scheme != "http" && uri.Scheme != "https"))
         {
-            SetStatus("Type the NVR address like http://192.168.1.64 or https://192.168.1.64:8443", error: true);
+            SetStatus(T("Type the NVR address like http://192.168.1.64 or https://192.168.1.64:8443"), error: true);
             return;
         }
-        if (_user.Text.Trim().Length == 0) { SetStatus("Type the NVR user name (usually admin).", error: true); return; }
+        if (_user.Text.Trim().Length == 0) { SetStatus(T("Type the NVR user name (usually admin)."), error: true); return; }
 
         var brand = _brand.SelectedIndex switch { 1 => NvrBrand.Hikvision, 2 => NvrBrand.Dahua, _ => NvrBrand.Auto };
         _cts = new CancellationTokenSource();
         _connect.Enabled = false;
         UseWaitCursor = true;
-        SetStatus($"Logging in to {uri.Authority}…", error: false);
+        SetStatus(T($"Logging in to {uri.Authority}…"), error: false);
         try
         {
             var user = _user.Text.Trim();
@@ -179,12 +180,12 @@ internal sealed class NvrForm : Form
             Fill(_result);
             var online = _result.Cameras.Count(c => c.Online == true);
             var sb = new StringBuilder();
-            sb.Append($"{_result.BrandName} {_result.Model} – {_result.Cameras.Count} camera(s)");
-            if (_result.Cameras.Any(c => c.Online != null)) sb.Append($", {online} online");
+            sb.Append(T($"{_result.BrandName} {_result.Model} – {_result.Cameras.Count} camera(s)"));
+            if (_result.Cameras.Any(c => c.Online != null)) sb.Append(T($", {online} online"));
             sb.Append('.');
-            if (added > 0) sb.Append($"  {added} added to the main list.");
+            if (added > 0) sb.Append(T($"  {added} added to the main list."));
             if (_result.Cameras.Any(c => c.Ip != null && !IsReachable(c.Ip)))
-                sb.Append("  Cameras marked \"through the NVR\" are on the NVR's own camera network (e.g. its PoE ports): open them from the NVR's web page.");
+                sb.Append(T("  Cameras marked \"through the NVR\" are on the NVR's own camera network (e.g. its PoE ports): open them from the NVR's web page."));
             foreach (var n in _result.Notes) sb.Append("  " + n);
             SetStatus(sb.ToString(), error: false);
             _engine.Log($"NVR {uri.Authority}: {_result.BrandName} {_result.Model}, {_result.Cameras.Count} cameras");
@@ -198,7 +199,7 @@ internal sealed class NvrForm : Form
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            SetStatus("Could not read the cameras: " + ex.Message, error: true);
+            SetStatus(T("Could not read the cameras: ") + ex.Message, error: true);
             _engine.Log($"NVR {uri.Authority} failed: {ex}");
         }
         finally
@@ -219,7 +220,7 @@ internal sealed class NvrForm : Form
         _grid.Rows.Clear();
         foreach (var c in r.Cameras)
         {
-            var net = c.Ip == null ? "Analog (no IP)" : IsReachable(c.Ip) ? "Directly" : "Through the NVR";
+            var net = c.Ip == null ? T("Analog (no IP)") : IsReachable(c.Ip) ? T("Directly") : T("Through the NVR");
             var i = _grid.Rows.Add(c.Channel, c.Name, c.Ip ?? "—", c.Port?.ToString() ?? "", c.Model ?? "", c.Serial ?? "", c.Mac ?? "", c.Status, net);
             var row = _grid.Rows[i];
             row.Tag = c;
@@ -250,10 +251,10 @@ internal sealed class NvrForm : Form
         if (_result == null) return;
         var sb = new StringBuilder();
         sb.AppendLine($"NVR {_address.Text.Trim()}\t{_result.BrandName} {_result.Model}\t{_result.Serial}");
-        sb.AppendLine("Ch\tName\tIP\tPort\tModel\tSerial\tMAC\tStatus");
+        sb.AppendLine(T("Ch\tName\tIP\tPort\tModel\tSerial\tMAC\tStatus"));
         foreach (var c in _result.Cameras)
             sb.AppendLine(string.Join("\t", c.Channel, c.Name, c.Ip, c.Port, c.Model, c.Serial, c.Mac, c.Status));
         Clipboard.SetText(sb.ToString());
-        SetStatus("List copied. Paste it in Excel or a message.", error: false);
+        SetStatus(T("List copied. Paste it in Excel or a message."), error: false);
     }
 }

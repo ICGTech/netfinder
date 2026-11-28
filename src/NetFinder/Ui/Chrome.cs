@@ -1,6 +1,7 @@
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using NetFinder.Core;
+using static NetFinder.Core.Text.L;
 
 namespace NetFinder.Ui;
 
@@ -40,6 +41,87 @@ internal static class Ui
 
     public static int WrapHeight(string text, Font f, int width) =>
         text.Length == 0 ? 0 : TextRenderer.MeasureText(text, f, new Size(Math.Max(10, width), int.MaxValue), Wrap).Height;
+
+    // ── right to left (Arabic, Urdu) ──
+    // The window is not mirrored by Windows (that breaks double-buffered painting): docking is swapped once, the grid
+    // and the standard controls turn by themselves (RightToLeft), and each painted control calls Mirror first in OnPaint.
+    // Shapes then mirror by themselves; texts and pictures go through DrawText / DrawImage, which put them at the
+    // mirrored place without mirroring the letters.
+
+    /// <summary>Mirrors the painting between x = left and x = right when the window is right to left.</summary>
+    public static void Mirror(Graphics g, int left, int right) { if (Rtl) g.Transform = new Matrix(-1, 0, 0, 1, left + right, 0); }
+    public static void Mirror(Graphics g, Control c) => Mirror(g, 0, c.Width);
+    public static void Unmirror(Graphics g) { if (Rtl) g.ResetTransform(); }
+
+    /// <summary>A mouse point in the coordinates the control paints in (mirrored when right to left).</summary>
+    public static Point Logical(Control c, Point p) => Rtl ? new Point(c.Width - 1 - p.X, p.Y) : p;
+
+    private static bool IsMirrored(Graphics g, out int axis, out int dy)
+    {
+        using var m = g.Transform;
+        var e = m.Elements;
+        axis = (int)Math.Round(e[4]); dy = (int)Math.Round(e[5]);
+        return e[0] < 0;
+    }
+
+    /// <summary>True when the text has Arabic / Hebrew letters: only those are drawn with right-to-left reading order
+    /// (an English model name in RTL order would get its closing bracket on the wrong side).</summary>
+    public static bool HasRtlLetters(string? s)
+    {
+        if (s == null) return false;
+        foreach (var ch in s) if (ch is >= '\u0590' and <= '\u08FF' or >= '\uFB1D' and <= '\uFEFC') return true;
+        return false;
+    }
+
+    public static void DrawText(Graphics g, string? text, Font font, Rectangle r, Color color, TextFormatFlags flags = TextFormatFlags.Default)
+    {
+        if (!IsMirrored(g, out var axis, out var dy)) { TextRenderer.DrawText(g, text, font, r, color, flags); return; }
+        var mr = new Rectangle(axis - r.Right, r.Y + dy, r.Width, r.Height);
+        if ((flags & TextFormatFlags.HorizontalCenter) == 0)
+            flags = (flags & TextFormatFlags.Right) != 0 ? flags & ~TextFormatFlags.Right : flags | TextFormatFlags.Right;
+        if (HasRtlLetters(text)) flags |= TextFormatFlags.RightToLeft;
+        using var saved = g.Transform;
+        g.ResetTransform();
+        try { TextRenderer.DrawText(g, text, font, mr, color, flags); }
+        finally { g.Transform = saved; }
+    }
+
+    public static void DrawText(Graphics g, string? text, Font font, Point p, Color color, TextFormatFlags flags = TextFormatFlags.Default)
+    {
+        if (!IsMirrored(g, out _, out _)) { TextRenderer.DrawText(g, text, font, p, color, flags); return; }
+        var size = TextRenderer.MeasureText(g, text, font, Size.Empty, flags);
+        DrawText(g, text, font, new Rectangle(p, size), color, flags | TextFormatFlags.NoClipping);
+    }
+
+    public static void DrawImage(Graphics g, Image img, Rectangle r)
+    {
+        if (!IsMirrored(g, out var axis, out var dy)) { g.DrawImage(img, r); return; }
+        using var saved = g.Transform;
+        g.ResetTransform();
+        try { g.DrawImage(img, new Rectangle(axis - r.Right, r.Y + dy, r.Width, r.Height)); }
+        finally { g.Transform = saved; }
+    }
+
+    /// <summary>Right to left: Dock Left ↔ Right (once, on the window's fixed parts).</summary>
+    public static void MirrorDock(Control root)
+    {
+        if (!Rtl) return;
+        foreach (Control c in root.Controls)
+        {
+            if (c.Dock == DockStyle.Left) c.Dock = DockStyle.Right;
+            else if (c.Dock == DockStyle.Right) c.Dock = DockStyle.Left;
+            MirrorDock(c);
+        }
+    }
+
+    /// <summary>A message box that reads right to left when the window does.</summary>
+    public static DialogResult Box(IWin32Window? owner, string text, string caption = "", MessageBoxButtons buttons = MessageBoxButtons.OK,
+        MessageBoxIcon icon = MessageBoxIcon.None, MessageBoxDefaultButton def = MessageBoxDefaultButton.Button1) =>
+        Rtl ? MessageBox.Show(owner, text, caption, buttons, icon, def, MessageBoxOptions.RtlReading | MessageBoxOptions.RightAlign)
+            : MessageBox.Show(owner, text, caption, buttons, icon, def);
+
+    /// <summary>Every window of the program: right to left for Arabic / Urdu.</summary>
+    public static void Direction(Control c) { if (Rtl) c.RightToLeft = RightToLeft.Yes; }
 
     /// <summary>A control painted by us, double-buffered.</summary>
     public static void Painted(Control c) =>
@@ -655,7 +737,7 @@ internal sealed class InfoTable : Control
     {
         Ui.Painted(this);
         var menu = new ContextMenuStrip { Renderer = new ChromeRenderer() };
-        menu.Items.Add("Copy", null, (_, _) => { var t = ToText(); if (t.Length > 0) Clipboard.SetText(t); });
+        menu.Items.Add(T("Copy"), null, (_, _) => { var t = ToText(); if (t.Length > 0) Clipboard.SetText(t); });
         ContextMenuStrip = menu;
     }
 
