@@ -234,7 +234,7 @@ public sealed class MainForm : Form
         _tools.Resize += (_, _) => FitHeader();
         _tools.Renderer = _renderer;
         _tools.Padding = new Padding(S(14), S(9), S(14), S(9));
-        _btnScan.Click += async (_, _) => await ScanAsync();
+        _btnScan.Click += async (_, _) => await ScanAsync(startOver: true);
         _btnStop.Click += (_, _) => _scanCts?.Cancel();
         _btnListen.CheckedChanged += (_, _) => ToggleListen(_btnListen.Checked);
         _chkRepeat.CheckedChanged += (_, _) => { if (_chkRepeat.Checked) _repeatTimer.Start(); else _repeatTimer.Stop(); ShowListenText(); };
@@ -248,7 +248,7 @@ public sealed class MainForm : Form
         };
         _txtRange.Text = _settings.ScanRanges;
         _txtRange.PlaceholderText = "auto (my subnet)";
-        _txtRange.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await ScanAsync(); } };
+        _txtRange.KeyDown += async (_, e) => { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; await ScanAsync(startOver: true); } };
         new ToolTip().SetToolTip(_txtRange, "Empty = automatic (my subnet).\nOr type ranges: 10.10.20.1-254, 10.10.0.0/16, 192.168.5.*");
         _txtFilter.TextChanged += (_, _) => ApplyFilter();
         _txtFilter.PlaceholderText = "Filter: IP, name, model, vendor…";
@@ -742,7 +742,15 @@ public sealed class MainForm : Form
             await Task.Delay(1200);
             Shot(Path.Combine(dir, "dark-narrow.png"));
             _chkRepeat.Checked = false;
-            File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}");
+            // a new scan in demo mode: the list empties, the devices come back with what was read from them
+            if (_engine.Store.Find("10.0.0.43") is { } t43) _engine.Store.Touch(t43, x => x.Info["Serial number"] = "RESTORE-TEST");
+            var before = _engine.Store.Count;
+            StartOver();
+            Core.Demo.DemoNetwork.Fill(_engine);
+            await Task.Delay(1500);
+            var serial = _engine.Store.Find("10.0.0.43") is { } back ? back.Info.GetValueOrDefault("Serial number") : null;
+            File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}\r\n" +
+                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}");
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
         Close();
@@ -1093,7 +1101,11 @@ public sealed class MainForm : Form
         }
     }
 
-    private async Task ScanAsync()
+    /// <param name="startOver">
+    /// Scan button: the list starts empty and shows only the devices that answer now (what was learned about a device,
+    /// like its model, comes back with it). The repeat timer adds to the list instead, so sleeping phones do not blink.
+    /// </param>
+    private async Task ScanAsync(bool startOver = false)
     {
         if (_scanCts != null) return;
         var rangeText = _txtRange.Text.Trim();
@@ -1103,6 +1115,7 @@ public sealed class MainForm : Form
             return;
         }
         if (rangeText != _settings.ScanRanges) { _settings.ScanRanges = rangeText; _settings.Save(); }
+        if (startOver && _engine.Store.Count > 0) StartOver();
 
         _scanCts = new CancellationTokenSource();
         _btnScan.Enabled = false; _btnStop.Enabled = true; _btnStop.Visible = true; _stProgress.Visible = true;
@@ -1125,6 +1138,17 @@ public sealed class MainForm : Form
         }
     }
 
+    private string? _reselect;
+
+    /// <summary>Empties the list for a new scan; the selected device is selected again when it answers.</summary>
+    private void StartOver()
+    {
+        _reselect = _selected?.Key;
+        var n = _engine.Store.Count;
+        _engine.Store.StartOver();
+        _engine.Log($"New scan: the list starts empty and shows the devices that answer now ({n} were listed before; what was read from them comes back when they answer)");
+    }
+
     // ───────────────────────────── UI refresh ─────────────────────────────
 
     private void FlushUi()
@@ -1135,6 +1159,8 @@ public sealed class MainForm : Form
             _grid.Rows.Clear(); _rows.Clear(); _dirty.Clear(); _portsQueued.Clear();
             while (_removed.TryDequeue(out _)) { }
             SelectDevice(null);
+            // devices found again between the clear and this refresh
+            foreach (var d in _engine.Store.All) _dirty[d.Key] = d;
         }
         var fresh = new List<string>();
         while (_logQueue.TryDequeue(out var l)) fresh.Add(l);
@@ -1179,6 +1205,13 @@ public sealed class MainForm : Form
             FillRow(row, d);
             MaybeAutoCheckPorts(d);
             FollowWatchedMac(d);
+            if (_reselect == key && row.Visible)
+            {
+                _reselect = null;
+                _grid.ClearSelection();
+                row.Selected = true;
+                _grid.CurrentCell = row.Cells["Ip"];
+            }
         }
         if (sortCol != null && sortDir != SortOrder.None)
             _grid.Sort(sortCol, sortDir == SortOrder.Ascending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending);

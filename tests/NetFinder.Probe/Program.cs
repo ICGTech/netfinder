@@ -270,6 +270,26 @@ if (args.Length >= 1 && args[0] == "selftest")
         Check("default ports have the risky ones", NetFinder.Core.Net.PortRisk.ExtraPorts.All(p => new Settings().Ports.Contains(p)), true);
         Check("watch defaults", $"{old.WatchSeconds} {old.WatchSound} {old.Watch.Count}", "60 True 0");
 
+        // 1.1.16: a new scan starts with an empty list; a device seen again gets back what was read from it
+        var st = new DeviceStore();
+        var ipA = System.Net.IPAddress.Parse("10.0.0.5");
+        st.Observe("AA:BB:CC:00:00:05", "ARP", null, ipA, d => { d.OfferModel("HP LaserJet M404", "IPP", 85); d.Info["Serial number"] = "SN5"; d.OpenPorts.Add(9100); d.PortsCheckedAt = DateTime.Now; });
+        st.ObserveIp(System.Net.IPAddress.Parse("10.0.0.6"), "Ping", null, d => d.Hostname = "old-pc");
+        st.Observe("AA:BB:CC:00:00:07", "ARP", null, System.Net.IPAddress.Parse("10.0.0.7"), d => d.Info["Serial number"] = "SN7");
+        var cleared = 0;
+        st.Cleared += () => cleared++;
+        st.StartOver();
+        Check("new scan: list empty", $"{st.Count} {cleared} {st.KeptAside}", "0 1 3");
+        var a2 = st.Observe("AA:BB:CC:00:00:05", "Ping", null, ipA)!;
+        Check("new scan: model and serial back", $"{a2.Model} | {a2.Info.GetValueOrDefault("Serial number")} | {string.Join(",", a2.OpenPorts)}", "HP LaserJet M404 | SN5 | 9100");
+        Check("new scan: found via starts again, ports checked again", $"{string.Join(",", a2.Sources)} {a2.PortsCheckedAt == null}", "Ping True");
+        var other = st.Observe("AA:BB:CC:00:00:99", "ARP", null, System.Net.IPAddress.Parse("10.0.0.7"))!;
+        Check("new scan: IP now used by another device", other.Info.GetValueOrDefault("Serial number"), null);
+        Check("new scan: only what answered", string.Join(",", st.All.Select(d => d.Key).OrderBy(k => k)), "10.0.0.5,10.0.0.7");
+        Check("new scan: still kept aside", st.KeptAside, 1);
+        st.Clear();
+        Check("clear forgets everything", $"{st.Count} {st.KeptAside}", "0 0");
+
         // 1.1.15: watching devices (fake ping: .2 goes down after the first round, .3 never answers)
         var downNow = false;
         var calls = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();

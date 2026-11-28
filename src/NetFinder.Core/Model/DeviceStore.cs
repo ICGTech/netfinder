@@ -9,6 +9,8 @@ public sealed class DeviceStore
 {
     private readonly ConcurrentDictionary<string, Device> _devices = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _lastKeyByMac = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Devices of earlier scans, kept aside by <see cref="StartOver"/> until they are seen again.</summary>
+    private readonly ConcurrentDictionary<string, Device> _previous = new(StringComparer.OrdinalIgnoreCase);
     private Func<IEnumerable<Adapter>> _adapters = () => Array.Empty<Adapter>();
 
     /// <summary>Raised (on a background thread) whenever a device is added or changed.</summary>
@@ -62,6 +64,7 @@ public sealed class DeviceStore
             if (source == "ARP" && ProxyArpMacs.ContainsKey(mac) && !IsLocal(ip)) return null;
             var key = ip.ToString();
             dev = _devices.GetOrAdd(key, k => Create(k, mac, ip));
+            Restored(key, dev);
             lock (dev)
             {
                 if (!dev.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase))
@@ -83,7 +86,11 @@ public sealed class DeviceStore
         else
         {
             if (_lastKeyByMac.TryGetValue(mac, out var k) && _devices.TryGetValue(k, out var existing) && existing.Mac == mac) dev = existing;
-            else dev = _devices.GetOrAdd("MAC " + mac, kk => Create(kk, mac, null));
+            else
+            {
+                dev = _devices.GetOrAdd("MAC " + mac, kk => Create(kk, mac, null));
+                Restored("MAC " + mac, dev);
+            }
         }
         Apply(dev, source, adapter, update, mac);
         return dev;
@@ -93,6 +100,7 @@ public sealed class DeviceStore
     public Device ObserveIp(IPAddress ip, string source, Adapter? adapter, Action<Device>? update = null)
     {
         var dev = _devices.GetOrAdd(ip.ToString(), k => Create(k, "", ip));
+        Restored(ip.ToString(), dev);
         lock (dev) if (dev.Mac.Length == 0) dev.Routed = !IsLocal(ip);
         Apply(dev, source, adapter, update, null);
         return dev;
@@ -100,10 +108,44 @@ public sealed class DeviceStore
 
     private Device Create(string key, string mac, IPAddress? ip)
     {
+        // seen in an earlier scan with the same IP (and the same MAC when both are known): bring back what we learned
+        // about it (model, serial, hardware, open ports, names). Only "found via" starts again, and its ports get checked again.
+        if (_previous.TryGetValue(key, out var old))
+        {
+            lock (old)
+                if (mac.Length == 0 || old.Mac.Length == 0 || old.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase))
+                {
+                    old.Sources.Clear();
+                    old.PortsCheckedAt = null;
+                    old.LastSeen = DateTime.Now;
+                    return old;
+                }
+        }
         var d = new Device(key, mac, ip) { Vendor = mac.Length > 0 ? OuiLookup.Lookup(mac) : null };
         Labels.Apply(d);
         return d;
     }
+
+    /// <summary>Once a kept-aside device is back in the list (or its IP went to another device), it is no longer kept aside.</summary>
+    private void Restored(string key, Device now)
+    {
+        if (!_previous.IsEmpty) _previous.TryRemove(key, out _);
+    }
+
+    /// <summary>
+    /// A new scan: the list starts empty and fills again with the devices that answer now. What was learned about
+    /// each device is kept aside and comes back when the same device (same IP and MAC) is seen again.
+    /// </summary>
+    public void StartOver()
+    {
+        foreach (var d in _devices.Values) _previous[d.Key] = d;
+        _devices.Clear();
+        _lastKeyByMac.Clear();
+        Cleared?.Invoke();
+    }
+
+    /// <summary>How many devices of earlier scans are kept aside (not seen again yet).</summary>
+    public int KeptAside => _previous.Count;
 
     private void Apply(Device dev, string source, Adapter? adapter, Action<Device>? update, string? mac)
     {
@@ -204,10 +246,12 @@ public sealed class DeviceStore
         if (_devices.TryRemove(d.Key, out _)) Removed?.Invoke(d);
     }
 
+    /// <summary>Forgets everything ("Clear the list").</summary>
     public void Clear()
     {
         _devices.Clear();
         _lastKeyByMac.Clear();
+        _previous.Clear();
         Cleared?.Invoke();
     }
 }

@@ -4,6 +4,9 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.16
+- Scan starts with an empty list and shows only the devices that answer now. What was read from a device (model, serial, hardware) comes back when it answers.
+
 ## 1.1.15
 - Export → PDF report: a ready PDF file of the devices shown, no browser needed.
 - Watch devices (☰ menu, right-click, or "Watched" in the side menu): pick devices and how often; NetFinder pings them and tells you when one goes down or comes back. One small ping each time, so the network hardly notices.
