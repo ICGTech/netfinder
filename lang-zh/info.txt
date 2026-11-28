@@ -1,0 +1,9 @@
+language zh (Chinese (Simplified)), right to left False, window RightToLeft No, font Microsoft YaHei UI
+header at 1440px: all items shown, range box 223px, compact: Deep "深度扫描", Listening "●  正在监听"; filter box 209px in the side menu
+list on screen {X=494,Y=153,Width=768,Height=815}, details {X=1263,Y=153,Width=437,Height=815}, side menu {X=260,Y=203,Width=233,Height=617}; the list is LEFT of the details, the side menu is LEFT of the list
+snmp: ink column shown True (212px), switch port column shown True; 10.0.0.45 port: CORE-SW1 · 端口 15; 10.0.0.88 port: CORE-SW1 · 端口 33 （3 台设备）
+printer panel: 6 supply rows, panel width 384px
+switch panel: 52 port squares in 363x206px (panel 384px)
+ports window 1088x578px
+header at 1100px: all items shown, range box 223px, compact: Deep "深度扫描", Listening "●  正在监听"; filter box 209px in the side menu
+ui errors: none

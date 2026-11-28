@@ -1,0 +1,9 @@
+language ar (Arabic), right to left True, window RightToLeft Yes, font Segoe UI
+header at 1440px: all items shown, range box 210px, compact: Deep "فحص عميق", Listening "●  يستمع"; filter box 195px in the side menu
+list on screen {X=672,Y=151,Width=808,Height=817}, details {X=260,Y=151,Width=411,Height=817}, side menu {X=1480,Y=201,Width=219,Height=627}; the list is RIGHT of the details, the side menu is RIGHT of the list
+snmp: ink column shown True (200px), switch port column shown True; 10.0.0.45 port: ‏‎CORE-SW1‎ · منفذ 15; 10.0.0.88 port: ‏‎CORE-SW1‎ · منفذ 33 (3 أجهزة)
+printer panel: 6 supply rows, panel width 358px
+switch panel: 52 port squares in 337x206px (panel 358px)
+ports window 960x510px
+header at 1100px: all items shown, range box 210px, compact: Deep "فحص عميق", Listening "●  يستمع"; filter box 195px in the side menu
+ui errors: none

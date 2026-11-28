@@ -1,0 +1,20 @@
+client 1100x720, dpi 96, screen {Width=1920, Height=1080}
+new scan: 17 before, 17 in store after, 17 rows, serial kept: RESTORE-TEST, kept aside: 0, did not answer: 0
+reveal: 0 rows right after Scan, 0 at 0.25 s, 4 at 0.85 s, 17 at 3.25 s, still revealing: False, timer 400 ms
+header at 1440px: all items shown, range box 273px, compact: Deep "Deep scan", Listening "●  Listening"; filter box 319px in the side menu
+header at 1100px: all items shown, range box 186px, compact: no Range label, logo only, Deep "Deep", Listening "●  Listening"; filter box 319px in the side menu (Repeat True, Deep scan True, timer on True)
+snmp: ink column shown True (312px), switch port column shown True; 10.0.0.45 port: CORE-SW1 · port 15; 10.0.0.88 port: CORE-SW1 · port 33 (3 devices)
+printer panel: 6 supply rows, panel width 478px
+switch panel: 52 port squares in 457x254px (panel 478px)
+ports window 1600x825px
+watch column shown: True
+right-click on Name of 10.0.0.43: selected 10.0.0.43, current cell Name, menu opened, 22 items
+right-click on Watch of 10.0.0.12: selected 10.0.0.12, current cell Watch, menu opened, 22 items
+nothing watched: watch column shown: False, current cell now Ip
+old code (cell 1): Current cell cannot be set to an invisible cell.
+right-click on Type of 10.0.0.45: selected 10.0.0.45, current cell Type, menu opened, 22 items
+right-click on Ip of 10.0.0.2: selected 10.0.0.2, current cell Ip, menu opened, 22 items
+right-click on Ports of 10.0.0.64: selected 10.0.0.64, current cell Ports, menu opened, 22 items
+ui errors: none
+arp table: 9 entries (Reachable 1, Permanent 8); arp -a: 9; in arp -a only: 0 []; read only: 0 []; gateway 10.1.0.1: 12:34:56:78:9A:BC Reachable fresh=True
+web links (admin True, explorer processes 2): /through-explorer: page loaded in Edge; /as-admin: page loaded in Edge
