@@ -30,6 +30,8 @@ public sealed class MainForm : Form
     private readonly ToolStripDropDownButton _menu = new("☰") { ShowDropDownArrow = false, Font = Theme.HeaderBold, ToolTipText = "Repeat scan, deep scan, dark mode, settings…" };
     private readonly InputBox _rangeBox = new(210);
     private readonly InputBox _filterBox = new(250) { SearchIcon = true };
+    private readonly ToolStripControlHost _rangeHost, _filterHost;
+    private readonly int _rangeWidth, _filterWidth;
     private TextBox _txtRange => _rangeBox.Box;
     private TextBox _txtFilter => _filterBox.Box;
     private readonly ToolStripButton _btnModels = new("Get models") { Font = Theme.Header, ToolTipText = "Ask every device for its model (also devices on other ranges, and Windows PCs with an admin login)" };
@@ -138,6 +140,10 @@ public sealed class MainForm : Form
         _engine.Store.Labels = _demo ? new UserLabels() : UserLabels.Load();
         _reach = new ReachManager(_engine);
 
+        _rangeWidth = _rangeBox.Width;
+        _filterWidth = _filterBox.Width;
+        _rangeHost = new ToolStripControlHost(_rangeBox) { AutoSize = false, Size = _rangeBox.Size, Margin = new Padding(0, 0, S(8), 0) };
+        _filterHost = new ToolStripControlHost(_filterBox) { AutoSize = false, Size = _filterBox.Size };
         BuildToolbar();
         BuildBanners();
         BuildNav();
@@ -209,6 +215,7 @@ public sealed class MainForm : Form
 
     private void BuildToolbar()
     {
+        _tools.Resize += (_, _) => FitHeader();
         _tools.Renderer = _renderer;
         _tools.Padding = new Padding(S(14), S(9), S(14), S(9));
         _btnScan.Click += async (_, _) => await ScanAsync();
@@ -240,7 +247,7 @@ public sealed class MainForm : Form
         {
             new BrandItem(),
             new ToolStripLabel("Range") { Tag = "muted", Font = Theme.Header, Margin = new Padding(S(6), 0, S(6), 0) },
-            new ToolStripControlHost(_rangeBox) { Margin = new Padding(0, 0, S(8), 0) },
+            _rangeHost,
             _btnScan, _btnStop, _btnModels, _btnListen,
         });
         _btnModels.Click += async (_, _) => { if (_modelsCts != null) _modelsCts.Cancel(); else await GetModelsForAllAsync(); };
@@ -258,7 +265,7 @@ public sealed class MainForm : Form
 
         var export = new ToolStripButton("Export") { Font = Theme.Header, Padding = new Padding(S(12), S(6), S(12), S(6)), ToolTipText = "Save the list shown as Excel (.xlsx), CSV or an HTML report (print it to PDF)" };
         export.Click += (_, _) => Export();
-        foreach (var b in new ToolStripItem[] { _menu, export, new ToolStripControlHost(_filterBox) })
+        foreach (var b in new ToolStripItem[] { _menu, export, _filterHost })
         {
             b.Alignment = ToolStripItemAlignment.Right;
             b.Margin = new Padding(S(4), 0, S(4), 0);
@@ -267,8 +274,25 @@ public sealed class MainForm : Form
         ShowListenText();
     }
 
-    private void ShowListenText() =>
+    private void ShowListenText()
+    {
         _btnListen.Text = (_btnListen.Checked ? "●  Listening" : "○  Not listening") + (_chkRepeat.Checked ? " · repeat every 2 min" : "");
+        FitHeader();
+    }
+
+    /// <summary>When the header is too narrow, the filter and Range boxes get shorter instead of disappearing.</summary>
+    private void FitHeader()
+    {
+        if (_rangeHost.Owner == null) return;
+        var others = _tools.Items.Cast<ToolStripItem>().Where(i => i.Available && i != _rangeHost && i != _filterHost)
+            .Sum(i => i.GetPreferredSize(Size.Empty).Width + i.Margin.Horizontal);
+        var room = _tools.DisplayRectangle.Width - others - _rangeHost.Margin.Horizontal - _filterHost.Margin.Horizontal - S(6);
+        var min = F(110);
+        var filter = Math.Clamp(room - _rangeWidth, min, _filterWidth);
+        var range = Math.Clamp(room - filter, min, _rangeWidth);
+        if (_filterHost.Width != filter) _filterHost.Width = filter;
+        if (_rangeHost.Width != range) _rangeHost.Width = range;
+    }
 
     private void BuildBanners()
     {
@@ -639,6 +663,11 @@ public sealed class MainForm : Form
             _tabs.SelectedIndex = 2;
             await Task.Delay(1000);
             Shot(Path.Combine(dir, "dark-computers-log.png"));
+            _chkRepeat.Checked = true;
+            Native.ForceSize(this, 1100 + border.Width, 720 + border.Height);
+            await Task.Delay(1200);
+            Shot(Path.Combine(dir, "dark-narrow.png"));
+            _chkRepeat.Checked = false;
             File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}");
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
@@ -1956,6 +1985,7 @@ public sealed class MainForm : Form
         _modelsCts = new CancellationTokenSource();
         var ct = _modelsCts.Token;
         _btnModels.Text = "Stop models";
+        FitHeader();
         _stProgress.Visible = true;
         int done = 0, found = 0, windowsOk = 0;
         var errors = new List<string>();
@@ -2070,6 +2100,7 @@ public sealed class MainForm : Form
         {
             _modelsCts.Dispose(); _modelsCts = null;
             _btnModels.Text = "Get models";
+            FitHeader();
             _stProgress.Visible = _scanCts != null;
         }
     }
