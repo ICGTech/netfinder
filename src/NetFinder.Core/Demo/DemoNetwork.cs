@@ -59,6 +59,8 @@ public static class DemoNetwork
         });
         Add("3C:52:82:AA:BB:02", "10.0.0.2", "LLDP", d => { d.Hostname = "CORE-SW1"; d.OfferModel("Aruba 2930F-48G Switch", "LLDP", 40); d.Info["Connected to its port"] = "1/1/7"; Ports(d, 22, 23, 80, 443); });
         Add("00:50:56:9A:01:03", "10.0.0.3", "NetBIOS", d => { d.Hostname = "new-fileserver"; Windows(d, "VMware Virtual Platform", "VMware, Inc.", "Windows Server 2019 Standard", "WMI"); Ports(d, 135, 139, 445, 3389); });
+        // a domain controller nobody logged in to: known as a server only by its ports (Kerberos, LDAP, DNS)
+        Add("F8:BC:12:4D:00:0A", "10.0.0.10", "NetBIOS", d => { d.Hostname = "OFFICE-DC1"; d.Info["Workgroup / domain"] = "OFFICE"; Ports(d, 53, 88, 135, 139, 389, 445, 3268, 3389); });
         Add("00:90:A9:44:55:07", "10.0.0.7", "mDNS", d => { d.Hostname = "WDMYCLOUDEX4100"; d.OfferModel("WDMyCloudEX4100", "UPnP", 75); d.Services.Add("_smb._tcp"); Ports(d, 21, 80, 443, 445); });
         Add("00:50:56:9A:01:12", "10.0.0.12", "NetBIOS", d => { d.Hostname = "bio-server"; Windows(d, "VMware Virtual Platform", "VMware, Inc.", "Windows Server 2016 Standard", "WMI"); Ports(d, 80, 135, 445); });
         Add("9C:B6:54:1A:2F:43", "10.0.0.43", "NetBIOS", d => { d.Hostname = "madapc0165"; Windows(d, "HP ProDesk 600 G3 MT", "HP", "Windows 10 Pro 22H2"); Ports(d, 135, 139, 445); });
@@ -87,7 +89,7 @@ public static class DemoNetwork
         Add("64:A2:F9:01:02:58", "10.0.0.88", "DHCP", d => { d.Hostname = "OnePlus-11"; d.Info["DHCP vendor class"] = "android-dhcp-14"; });
         Add("C0:56:E3:11:22:33", "192.168.1.64", "ARP", d => { d.Info["UPnP server"] = "Linux/3.10 UPnP/1.0 Hikvision"; d.PortsCheckedAt = null; });
 
-        e.Log("Found 15 devices on Ethernet (10.0.0.0/16) and 1 on another subnet (192.168.1.0/24)");
+        e.Log("Found 16 devices on Ethernet (10.0.0.0/16) and 1 on another subnet (192.168.1.0/24)");
         e.Log("Windows 10.0.0.45 (HP): login accepted (OFFICE\\administrator)");
         e.Log("Windows 10.0.0.45 (HP): HP ProDesk 600 G3 MT (via Remote Registry, login OFFICE\\administrator)");
         e.Log("Windows 10.0.0.45 (HP): CPU Intel Core i5-7500 @ 3.40GHz  ·  RAM 8 GB  ·  Disk 1: SAMSUNG MZ7LN256HAJQ (SSD, 256 GB)  ·  Disk 2: ST1000DM010-2EP102 (HDD, 1 TB)");

@@ -60,7 +60,12 @@ public sealed class Settings
         5000, 5001, 5060, 5432, 5900, 7547, 8000, 8001, 8008, 8080, 8081, 8088, 8443, 8728, 8888, 8899, 9000, 9100, 37777, 49152, 62078, 8009, 8291, 135,
         // 1.1.15: risky services (see PortRisk)
         512, 513, 514, 1433, 1723, 2375, 5800, 5985, 6379, 9200, 11211, 27017,
+        // 1.1.18: domain controllers (LDAP, global catalog) and Hyper-V, to tell Windows servers from PCs
+        389, 636, 3268, 2179,
     };
+
+    /// <summary>Ports added to the check in 1.1.18 (see <see cref="Classifiers.ServerSigns"/>).</summary>
+    public static readonly int[] ServerPorts = { 389, 636, 3268, 2179 };
 
     /// <summary>
     /// Bumped when new ports join the default list, so a saved list gets them once. No initial value on purpose:
@@ -105,6 +110,12 @@ public sealed class Settings
                 {
                     foreach (var p in Net.PortRisk.ExtraPorts) if (!s.Ports.Contains(p)) s.Ports.Add(p);
                     s.PortsVersion = 2;
+                }
+                // 1.1.18: ports that show a Windows server (domain controller, Hyper-V)
+                if (s.PortsVersion < 3)
+                {
+                    foreach (var p in ServerPorts) if (!s.Ports.Contains(p)) s.Ports.Add(p);
+                    s.PortsVersion = 3;
                 }
                 s.WatchSeconds = Math.Clamp(s.WatchSeconds, 10, 3600);
                 return s;

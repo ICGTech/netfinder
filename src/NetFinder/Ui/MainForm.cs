@@ -269,7 +269,7 @@ public sealed class MainForm : Form
         _btnModels.Click += async (_, _) => { if (_modelsCts != null) _modelsCts.Cancel(); else await GetModelsForAllAsync(); };
 
         var clear = new ToolStripMenuItem("Clear the list");
-        clear.Click += (_, _) => { _engine.Store.Clear(); _engine.LearnedSubnets.Clear(); };
+        clear.Click += (_, _) => { _lastList = null; _engine.Store.Clear(); _engine.LearnedSubnets.Clear(); };
         var settings = new ToolStripMenuItem("Settings…");
         settings.Click += (_, _) => { using var f = new SettingsForm(_settings, _engine.Plugins); f.ShowDialog(this); };
         var about = new ToolStripMenuItem("About / check for updates…");
@@ -730,6 +730,11 @@ public sealed class MainForm : Form
             await Task.Delay(1200);
             Shot(Path.Combine(dir, "light-watched.png"));
             await ShotWatchDialogAsync(Path.Combine(dir, "light-watch-dialog.png"));
+            // 1.1.18: Windows servers (a domain controller found only by its ports, and two Windows Server VMs)
+            _nav.Select("server");
+            SelectIp("10.0.0.10");
+            await Task.Delay(1200);
+            Shot(Path.Combine(dir, "light-servers.png"));
             _nav.Select("all");
             Core.Export.Exporter.Save(Path.Combine(dir, "report.pdf"), _rows.Values.Select(r => r.Tag).OfType<Device>().ToList(), ExportTitle(), WatchExportText);
             SelectIp("10.0.0.45");
@@ -748,6 +753,7 @@ public sealed class MainForm : Form
             _chkRepeat.Checked = false;
             // 1.1.17: right-clicks on rows, with the Watch column shown and hidden (it used to fail when hidden)
             var rc = await RightClickCheckAsync(dir);
+            rc.Add(await ArpTableCheckAsync());
             // a new scan in demo mode: the list empties, the devices come back with what was read from them
             if (_engine.Store.Find("10.0.0.43") is { } t43) _engine.Store.Touch(t43, x => x.Info["Serial number"] = "RESTORE-TEST");
             var before = _engine.Store.Count;
@@ -756,7 +762,7 @@ public sealed class MainForm : Form
             await Task.Delay(1500);
             var serial = _engine.Store.Find("10.0.0.43") is { } back ? back.Info.GetValueOrDefault("Serial number") : null;
             File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}\r\n" +
-                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}\r\n" +
+                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}, did not answer: {Gone().Count}\r\n" +
                 string.Join("\r\n", rc));
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
@@ -772,6 +778,27 @@ public sealed class MainForm : Form
         if (!row.Visible || row.DataGridView != _grid) return;
         var col = column >= 0 && column < _grid.Columns.Count && _grid.Columns[column].Visible ? _grid.Columns[column] : _grid.Columns["Ip"];
         if (col is { Visible: true } && _grid.CurrentCell != row.Cells[col.Index]) _grid.CurrentCell = row.Cells[col.Index];
+    }
+
+    /// <summary>Screenshot self-check on a real Windows: the ARP table read with GetIpNetTable2 must match "arp -a".</summary>
+    private static async Task<string> ArpTableCheckAsync()
+    {
+        try
+        {
+            var gw = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .SelectMany(n => n.GetIPProperties().GatewayAddresses).Select(g => g.Address)
+                .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            if (gw != null) using (var p = new System.Net.NetworkInformation.Ping()) await p.SendPingAsync(gw, 1000);
+            var withState = ArpCache.ReadWithState();
+            var plain = ArpCache.Read();
+            var a = withState.Where(e => e.Mac != DeviceStore.NoMac).Select(e => $"{e.Ip} {e.Mac}").ToHashSet();
+            var b = plain.Select(e => $"{e.Ip} {e.Mac}").ToHashSet();
+            var states = string.Join(", ", withState.GroupBy(e => e.State).Select(g => $"{g.Key} {g.Count()}"));
+            var gwState = gw == null ? "none" : withState.Where(e => e.Ip.Equals(gw)).Select(e => $"{e.Mac} {e.State} fresh={e.Fresh}").FirstOrDefault() ?? "not in table";
+            return $"arp table: {withState.Count} entries ({states}); arp -a: {plain.Count}; " +
+                   $"in arp -a only: {b.Except(a).Count()} [{string.Join("; ", b.Except(a).Take(4))}]; read only: {a.Except(b).Count()} [{string.Join("; ", a.Except(b).Take(4))}]; gateway {gw}: {gwState}";
+        }
+        catch (Exception ex) { return "arp table check failed: " + ex.Message; }
     }
 
     /// <summary>Screenshot self-check: right-clicks rows the way Windows does and writes down what happened.</summary>
@@ -1179,7 +1206,8 @@ public sealed class MainForm : Form
             return;
         }
         if (rangeText != _settings.ScanRanges) { _settings.ScanRanges = rangeText; _settings.Save(); }
-        if (startOver && _engine.Store.Count > 0) StartOver();
+        _startedEmpty = startOver && _engine.Store.Count > 0;
+        if (_startedEmpty) StartOver();
 
         _scanCts = new CancellationTokenSource();
         _btnScan.Enabled = false; _btnStop.Enabled = true; _btnStop.Visible = true; _stProgress.Visible = true;
@@ -1188,6 +1216,12 @@ public sealed class MainForm : Form
         try
         {
             await Task.Run(() => _engine.ScanAsync(SelectedAdapters(), _engine.Plugins.Scanners, progress, _scanCts.Token));
+            if (startOver && _lastList != null)
+            {
+                var gone = Gone();
+                _engine.Log($"New scan done: {_engine.Store.Count} device(s) answered" + (gone.Count == 0 ? ", all of the last list too" :
+                    $"; {gone.Count} of the last list did not answer and are no longer listed: {string.Join(", ", gone.OrderBy(IpKey).Take(20))}{(gone.Count > 20 ? "…" : "")}"));
+            }
             _stState.Text = $"Scan finished at {DateTime.Now:HH:mm:ss}." + (_engine.Listening ? " Still listening for new devices…" : "");
             _lastScan = DateTime.Now;
             _stExport.Visible = true;
@@ -1203,11 +1237,17 @@ public sealed class MainForm : Form
     }
 
     private string? _reselect;
+    /// <summary>The devices listed before the last "Scan" emptied the list (to say how many did not answer again).</summary>
+    private HashSet<string>? _lastList;
+    private bool _startedEmpty;
+
+    private List<string> Gone() => _lastList?.Where(k => _engine.Store.Find(k) == null && !k.StartsWith("MAC ")).ToList() ?? new List<string>();
 
     /// <summary>Empties the list for a new scan; the selected device is selected again when it answers.</summary>
     private void StartOver()
     {
         _reselect = _selected?.Key;
+        _lastList = _engine.Store.All.Select(d => d.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var n = _engine.Store.Count;
         _engine.Store.StartOver();
         _engine.Log($"New scan: the list starts empty and shows the devices that answer now ({n} were listed before; what was read from them comes back when they answer)");
@@ -1332,8 +1372,13 @@ public sealed class MainForm : Form
     {
         var shown = _rows.Values.Count(r => r.Visible);
         var parts = new List<string> { _nav.SelectedKey == "all" && _txtFilter.Text.Trim().Length == 0 ? $"{shown} found" : $"{shown} shown" };
-        if (_scanCts != null) parts.Add("scanning…");
-        else if (_lastScan is { } t) parts.Add($"scan finished {t:HH:mm}");
+        if (_scanCts != null) parts.Add(_lastList != null && _startedEmpty ? "new scan: the list started empty, scanning…" : "scanning…");
+        else if (_lastScan is { } t)
+        {
+            parts.Add($"scan finished {t:HH:mm}");
+            var gone = Gone().Count;
+            if (gone > 0) parts.Add($"{gone} of the last list did not answer");
+        }
         if (_btnListen.Checked) parts.Add("still listening for new devices");
         _summary.Text = string.Join("  ·  ", parts);
     }
@@ -1346,7 +1391,7 @@ public sealed class MainForm : Form
         return d.EffectiveType switch
         {
             DeviceTypes.WindowsPc or DeviceTypes.Mac => "pc",
-            DeviceTypes.Linux or DeviceTypes.Vm => "server",
+            DeviceTypes.Linux or DeviceTypes.Vm or DeviceTypes.WindowsServer => "server",
             DeviceTypes.Camera or DeviceTypes.Nvr => "camera",
             DeviceTypes.Printer => "printer",
             DeviceTypes.Router or DeviceTypes.Switch or DeviceTypes.AccessPoint or DeviceTypes.Firewall => "network",
@@ -1537,7 +1582,7 @@ public sealed class MainForm : Form
         var P = Theme.P;
         string title, sub, type, typeWhy; bool reachable, self, routed; IPAddress? ip; List<DeviceAction> actions;
         List<(int Port, string Info)> ports; DateTime? checkedAt; string? behindNvr, nvrChannel, nvrCount; bool nvrLike;
-        string? model, modelSrc, serial, windows, winStatus; bool win; var hw = new List<InfoTable.Row>();
+        string? model, modelSrc, serial, windows, winStatus; bool win, kerberos; var hw = new List<InfoTable.Row>();
         (string Label, DeviceAction Action)? primary;
         lock (d)
         {
@@ -1560,7 +1605,8 @@ public sealed class MainForm : Form
             checkedAt = d.PortsCheckedAt;
             model = d.Model; modelSrc = d.ModelSource; serial = d.Info.GetValueOrDefault("Serial number"); windows = d.Info.GetValueOrDefault("Windows");
             winStatus = d.Info.GetValueOrDefault("Windows status");
-            win = LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc;
+            win = LooksWindows(d) || d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.WindowsServer;
+            kerberos = ServerSigns.IsKerberos(d);
             hw = HardwareRows(d);
         }
         var iconType = self ? Theme.ThisPc : type;
@@ -1735,7 +1781,7 @@ public sealed class MainForm : Form
             foreach (var (port, info) in ports)
             {
                 if (findings.Any(f => f.Port == port && f.Level == PortRiskLevel.High)) chips.Bad.Add(chips.Chips.Count);
-                chips.Chips.Add((port.ToString(), PortName(port), info.Length > 0 ? info : null));
+                chips.Chips.Add((port.ToString(), port == 88 && kerberos ? "Kerberos (domain logins)" : PortName(port), info.Length > 0 ? info : null));
             }
             chips.Fit(W);
             flow.Controls.Add(chips);
@@ -2352,16 +2398,16 @@ public sealed class MainForm : Form
     /// <summary>Windows PC (or probably one): worth asking with a Windows login. A PC maker's MAC alone is not enough.</summary>
     private static bool LooksWindows(Device d) =>
         d.IsSelf || d.Info.ContainsKey("Windows") || d.OpenPorts.Contains(135) || d.OpenPorts.Contains(3389) ||
-        (d.OpenPorts.Contains(445) && d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.Unknown or DeviceTypes.Vm) ||
-        (d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.Vm or DeviceTypes.Unknown && d.Info.GetValueOrDefault("TTL") == "128") ||
-        (d.EffectiveType == DeviceTypes.WindowsPc && d.PortsCheckedAt != null && d.OpenPorts.Count == 0);
+        (d.OpenPorts.Contains(445) && d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.WindowsServer or DeviceTypes.Unknown or DeviceTypes.Vm) ||
+        (d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.WindowsServer or DeviceTypes.Vm or DeviceTypes.Unknown && d.Info.GetValueOrDefault("TTL") == "128") ||
+        (d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.WindowsServer && d.PortsCheckedAt != null && d.OpenPorts.Count == 0);
 
     /// <summary>
     /// Asked with the Windows login in "Get models": what looks like Windows, anything typed Windows PC, and a PC maker's
     /// network card (Dell, HP, Lenovo…) that is not clearly something else. Safe: the login is only sent where 135 or 445 answers.
     /// </summary>
     private static bool WindowsCandidate(Device d) =>
-        d.BehindNvr == null && (LooksWindows(d) || d.EffectiveType == DeviceTypes.WindowsPc ||
+        d.BehindNvr == null && (LooksWindows(d) || d.EffectiveType is DeviceTypes.WindowsPc or DeviceTypes.WindowsServer ||
         (BuiltInClassifier.IsPcMaker(d.Vendor) && d.EffectiveType is DeviceTypes.Unknown or DeviceTypes.Linux or DeviceTypes.Vm));
 
     /// <summary>"10.0.0.6 (Dell)": an IP with its maker, for the Log and the summary.</summary>

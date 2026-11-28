@@ -60,6 +60,8 @@ public sealed class TypeScores
         v.Why.Add(why);
         _s[type] = (v.Score + points, v.Why);
     }
+    /// <summary>Points a type has so far (0 when none).</summary>
+    public int Get(string type) => _s.TryGetValue(type, out var v) ? v.Score : 0;
     public (string Type, int Score, List<string> Why)? Best =>
         _s.Count == 0 ? null : _s.OrderByDescending(kv => kv.Value.Score).Select(kv => (kv.Key, kv.Value.Score, kv.Value.Why)).First();
 }

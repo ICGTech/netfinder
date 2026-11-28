@@ -98,12 +98,13 @@ public sealed class NameEnricher : IDeviceEnricher
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(1500);
             var res = await udp.ReceiveAsync(cts.Token);
-            var name = Analyzers.NetbiosAnalyzer.ParseNodeStatus(res.Buffer, out var group);
+            var name = Analyzers.NetbiosAnalyzer.ParseNodeStatus(res.Buffer, out var group, out var dc);
             if (name != null)
                 ctx.Engine.Store.Touch(device, d =>
                 {
                     d.Info["NetBIOS name"] = name; d.Hostname ??= name;
                     if (group != null) d.Info["Workgroup / domain"] = group;
+                    if (dc) d.Info["Domain role"] = Analyzers.NetbiosAnalyzer.DomainController;
                 });
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

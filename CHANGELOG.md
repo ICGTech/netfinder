@@ -4,6 +4,11 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.18
+- Scan no longer brings back devices that are gone: old entries Windows remembers (ARP table) count only when the device answers now.
+- New type "Windows Server", listed under Servers & VMs: found by the Windows edition, or by domain controller, DNS and other server ports.
+- Port 88 of a domain controller is shown as Kerberos, not as a web page.
+
 ## 1.1.17
 - Fixed: right-clicking a device showed "Current cell cannot be set to an invisible cell" instead of the menu.
 

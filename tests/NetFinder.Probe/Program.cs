@@ -161,6 +161,19 @@ if (args.Length >= 1 && args[0] == "selftest")
     var nb = NetFinder.Core.Analyzers.NetbiosAnalyzer.ParseNodeStatus(ns.ToArray(), out var grpName);
     Check("nbstat name", nb, "AHMED-SAMY");
     Check("nbstat domain", grpName, "ALMADA");
+    NetFinder.Core.Analyzers.NetbiosAnalyzer.ParseNodeStatus(ns.ToArray(), out _, out var isDc);
+    Check("nbstat PC is not a domain controller", isDc, false);
+    byte[] NodeStatus(params (string n, byte suf, bool grp)[] list)
+    {
+        var b = new List<byte>(new byte[12]); b.Add(32); b.AddRange(System.Text.Encoding.ASCII.GetBytes("CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")); b.Add(0);
+        b.AddRange(new byte[] { 0, 0x21, 0, 1, 0, 0, 0, 0, 0, 0 }); b.Add((byte)list.Length);
+        foreach (var (n, suf, grp) in list) { b.AddRange(System.Text.Encoding.ASCII.GetBytes(n.PadRight(15))); b.Add(suf); b.Add((byte)(grp ? 0x84 : 0x04)); b.Add(0); }
+        return b.ToArray();
+    }
+    NetFinder.Core.Analyzers.NetbiosAnalyzer.ParseNodeStatus(NodeStatus(("DC01", 0, false), ("OFFICE", 0, true), ("OFFICE", 0x1C, true)), out _, out isDc);
+    Check("nbstat domain controller <1C>", isDc, true);
+    NetFinder.Core.Analyzers.NetbiosAnalyzer.ParseNodeStatus(NodeStatus(("DC01", 0, false), ("OFFICE", 0x1B, false)), out _, out isDc);
+    Check("nbstat main domain controller <1B>", isDc, true);
     var star = new byte[34]; star[0] = 32; var enc = "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"u8.ToArray(); enc.CopyTo(star, 1);
     Check("decode '*' name", NetFinder.Core.Analyzers.NetbiosAnalyzer.DecodeName(star, out var sfx), "*");
 
@@ -179,6 +192,38 @@ if (args.Length >= 1 && args[0] == "selftest")
     Check("dell 135/445", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 135, 139, 445 }); }), DeviceTypes.WindowsPc);
     Check("dell idrac title", Type(d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 80, 443 }); d.PortInfo[443] = "Integrated Dell Remote Access Controller 9"; }), DeviceTypes.Linux);
     Check("hp 135/139/445", Type(d => { d.Vendor = "Hewlett Packard"; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 135, 139, 445 }); }), DeviceTypes.WindowsPc);
+
+    // 1.1.18: Windows servers on any network, from what is read anyway (ports, NetBIOS, Windows edition)
+    Action<Device> Win(params int[] p) => d => { d.Vendor = "Dell Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(p); };
+    Check("server: DC by Kerberos", Type(Win(88, 135, 139, 445, 3389)), DeviceTypes.WindowsServer);
+    Check("server: DC by LDAP", Type(Win(135, 445, 389)), DeviceTypes.WindowsServer);
+    Check("server: DNS on Windows", Type(Win(53, 135, 445, 3389)), DeviceTypes.WindowsServer);
+    Check("server: NetBIOS domain controller", Type(d => { Win(135, 445)(d); d.Info["Domain role"] = "Domain controller"; }), DeviceTypes.WindowsServer);
+    Check("server: Windows Server edition (VM)", Type(d => { d.Vendor = "VMware, Inc."; d.Info["Windows"] = "Windows Server 2019 Standard"; d.OpenPorts.UnionWith(new[] { 135, 445 }); }), DeviceTypes.WindowsServer);
+    Check("server: PowerEdge", Type(d => { Win(135, 445)(d); d.OfferModel("PowerEdge R740", "Windows (WMI)", 100); }), DeviceTypes.WindowsServer);
+    Check("server: SQL + WinRM", Type(Win(135, 445, 1433, 5985)), DeviceTypes.WindowsServer);
+    Check("pc: SQL only", Type(Win(135, 445, 1433)), DeviceTypes.WindowsPc);
+    Check("pc: WinRM only", Type(Win(135, 445, 5985)), DeviceTypes.WindowsPc);
+    Check("pc: Windows 11 even with SQL + WinRM + DNS", Type(d => { Win(53, 135, 445, 1433, 5985)(d); d.Info["Windows"] = "Windows 11 Pro 23H2"; }), DeviceTypes.WindowsPc);
+    Check("router with file sharing + DNS stays a router", Type(d => { d.Vendor = "TP-LINK TECHNOLOGIES CO.,LTD."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 53, 80, 139, 445 }); }), DeviceTypes.Router);
+    Check("linux TTL with RPC is not Windows", Type(d => { Win(53, 88, 135, 445)(d); d.Info["TTL"] = "64"; }) != DeviceTypes.WindowsServer, true);
+    Check("esxi web title", Type(d => { d.Vendor = "Super Micro Computer, Inc."; d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 80, 443, 902 }); d.PortInfo[443] = "VMware ESXi"; }), DeviceTypes.Linux);
+    // port 88 of a domain controller is Kerberos, not a web page
+    string OpenLabel(Action<Device> set) { var d = new Device("10.0.0.250", "E4:43:4B:8E:19:44", System.Net.IPAddress.Parse("10.0.0.250")); set(d); return NetFinder.Core.Actions.BuiltInActions.Primary(d)?.Label ?? "-"; }
+    Check("open: DC is not http :88", OpenLabel(Win(88, 135, 139, 445, 3389)), "Remote Desktop");
+    Check("open: DC without RDP", OpenLabel(Win(88, 135, 139, 445)), "Files");
+    Check("open: camera web on 88", OpenLabel(d => { d.PortsCheckedAt = DateTime.Now; d.OpenPorts.UnionWith(new[] { 88, 554 }); }), "http :88");
+    Check("open: Windows web page on 88", OpenLabel(d => { Win(88, 135, 445)(d); d.PortInfo[88] = "Intranet"; }), "http :88");
+    Check("server ports in the default list", Settings.ServerPorts.All(p => new Settings().Ports.Contains(p)), true);
+    Check("port 389 name", NetFinder.Core.Net.PortRisk.Service(389), "LDAP (domain)");
+
+    // 1.1.18: an old ARP table entry of Windows comes back only if the device answered now
+    bool Keep(bool? fresh, bool ping, bool listed) => NetFinder.Core.Scanners.PingTcpSweep.KeepArpEntry(fresh, ping, listed);
+    Check("arp: old entry, no answer", Keep(false, false, false), false);
+    Check("arp: fresh entry (blocks ping)", Keep(true, false, false), true);
+    Check("arp: old entry but answered ping", Keep(false, true, false), true);
+    Check("arp: already found by the ARP sweep", Keep(false, false, true), true);
+    Check("arp: state unknown (not Windows)", Keep(null, false, false), true);
     // disk / graphics text
     Check("disk size 500GB", NetFinder.Core.Net.HardwareText.DiskSize(500107862016), "500 GB");
     Check("disk size 256GB", NetFinder.Core.Net.HardwareText.DiskSize(256060514304), "256 GB");

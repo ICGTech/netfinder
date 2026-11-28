@@ -103,15 +103,19 @@ public sealed class PingTcpSweep : IActiveScanner
             }));
         }
 
-        // 3) MACs from the ARP table (also catches devices that answered ARP but blocked ping)
+        // 3) MACs from the ARP table (also catches devices that answered ARP but blocked ping).
+        //    Windows keeps entries of devices that are gone ("Stale"): those come back only when the device answered now.
         var targetSet = targets.ToHashSet();
-        foreach (var (ip, mac) in ArpCache.Read())
+        var old = 0;
+        foreach (var e in ArpCache.ReadWithState())
         {
-            var v = Ip4.ToUInt(ip);
-            if (!targetSet.Contains(v) || !DeviceStore.IsValidMac(mac)) continue;
-            var adapter = ctx.Adapters.FirstOrDefault(a => a.OwnsSubnetOf(ip));
-            ctx.Store.Observe(mac, alive.Contains(v) ? "Ping" : "ARP table", adapter, ip);
+            var v = Ip4.ToUInt(e.Ip);
+            if (!targetSet.Contains(v) || !DeviceStore.IsValidMac(e.Mac)) continue;
+            if (!KeepArpEntry(e.Fresh, alive.Contains(v), ctx.Store.FindByIp(e.Ip) != null)) { old++; continue; }
+            var adapter = ctx.Adapters.FirstOrDefault(a => a.OwnsSubnetOf(e.Ip));
+            ctx.Store.Observe(e.Mac, alive.Contains(v) ? "Ping" : "ARP table", adapter, e.Ip);
         }
+        if (old > 0) ctx.Log($"ARP table: skipped {old} old entr{(old == 1 ? "y" : "ies")} of Windows (those devices did not answer now)");
         // 4) the rest (routed, or no ARP entry): add by IP only
         foreach (var t in alive)
         {
@@ -123,6 +127,12 @@ public sealed class PingTcpSweep : IActiveScanner
         }
         ctx.Log(alive.IsEmpty ? "Ping/TCP sweep: no extra devices (ARP already found every device that answers)" : $"Ping/TCP sweep: {alive.Count} more device(s) answered");
     }
+
+    /// <summary>
+    /// Is an ARP table entry worth listing? Yes when the device answered ping now, is already listed (found another
+    /// way), or Windows heard from it in the last ~30 s. An old entry ("Stale") alone is a device that may be gone.
+    /// </summary>
+    public static bool KeepArpEntry(bool? fresh, bool answeredPing, bool alreadyListed) => answeredPing || alreadyListed || fresh != false;
 
     private static bool IsLocal(ScanContext ctx, uint ip) => ctx.Adapters.Any(a => a.Addresses.Any(x => x.Subnet.Contains(ip)));
 

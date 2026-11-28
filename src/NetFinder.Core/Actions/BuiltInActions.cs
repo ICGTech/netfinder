@@ -13,6 +13,9 @@ public sealed class BuiltInActions : IDeviceActionProvider
     public static readonly int[] HttpsPorts = { 443, 8443, 4443, 9443, 10443 };
     public static readonly HashSet<int> HttpPorts = new() { 80, 81, 82, 88, 3000, 5000, 5001, 7547, 8000, 8001, 8008, 8080, 8081, 8088, 8888, 8899, 9000, 49152 };
 
+    /// <summary>A plain web port of this device. Port 88 of a Windows machine is Kerberos (a domain controller), not a web page.</summary>
+    public static bool IsWebPort(Device d, int p) => HttpPorts.Contains(p) && !(p == 88 && Classifiers.ServerSigns.IsKerberos(d));
+
     /// <summary>Managed network gear: worth offering SSH/Telnet even before (or without) a port check.</summary>
     public static bool IsNetworkGear(Device d) =>
         d.EffectiveType is DeviceTypes.Switch or DeviceTypes.AccessPoint or DeviceTypes.Router or DeviceTypes.Firewall
@@ -36,7 +39,7 @@ public sealed class BuiltInActions : IDeviceActionProvider
         {
             if (p is 80 or 443) continue;
             if (HttpsPorts.Contains(p)) yield return new DeviceAction("Web", $"https://{ip}:{p}", () => Launcher.Open($"https://{ip}:{p}/"));
-            else if (HttpPorts.Contains(p)) yield return new DeviceAction("Web", $"http://{ip}:{p}", () => Launcher.Open($"http://{ip}:{p}/"));
+            else if (IsWebPort(d, p)) yield return new DeviceAction("Web", $"http://{ip}:{p}", () => Launcher.Open($"http://{ip}:{p}/"));
         }
         if (d.Info.TryGetValue("UPnP description URL", out var loc))
             yield return new DeviceAction("Web", "UPnP description", () => Launcher.Open(loc), loc);
@@ -80,7 +83,7 @@ public sealed class BuiltInActions : IDeviceActionProvider
         foreach (var p in ports)
             if (HttpsPorts.Contains(p)) return ($"https :{p}", Web($"https://{ip}:{p}"));
         foreach (var p in ports)
-            if (HttpPorts.Contains(p)) return ($"http :{p}", Web($"http://{ip}:{p}"));
+            if (IsWebPort(d, p)) return ($"http :{p}", Web($"http://{ip}:{p}"));
         if (ports.Contains(8291)) return ("Winbox", new DeviceAction("Remote", "Winbox", () => Launcher.Winbox(ip)));
         if (ports.Contains(3389)) return ("Remote Desktop", new DeviceAction("Remote", "Remote Desktop", () => Launcher.Run("mstsc.exe", $"/v:{ip}")));
         if (ports.Contains(22)) return ("SSH", new DeviceAction("Remote", "SSH", () => Launcher.Ssh(ip)));

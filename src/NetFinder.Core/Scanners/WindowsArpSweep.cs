@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.NetworkInformation;
+using NetFinder.Core.Model;
 using NetFinder.Core.Net;
 using NetFinder.Core.Plugins;
 
@@ -19,6 +22,10 @@ public sealed class WindowsArpSweep : IActiveScanner
     public async Task RunAsync(ScanContext ctx, CancellationToken ct)
     {
         if (ctx.Engine.CaptureAvailable || !OperatingSystem.IsWindows()) return;
+        // SendARP answers from Windows' ARP table without asking the device when the address is in it, even for an
+        // old entry of a device that left hours ago ("Stale"). Those answers are checked before the device is listed.
+        var oldEntries = ArpCache.ReadWithState().Where(e => e.Fresh == false).Select(e => Ip4.ToUInt(e.Ip)).ToHashSet();
+        var unsure = new ConcurrentDictionary<uint, (string Mac, Adapter Adapter)>();
         foreach (var a in ctx.Adapters)
         foreach (var addr in a.Addresses.ToList())
         {
@@ -43,7 +50,8 @@ public sealed class WindowsArpSweep : IActiveScanner
                     {
                         var ip = Ip4.FromUInt(h);
                         var mac = WindowsNet.ResolveMac(ip, addr.Ip);
-                        if (mac != null) ctx.Store.Observe(mac, "ARP", a, ip);
+                        if (mac != null && oldEntries.Contains(h)) unsure[h] = (mac, a);
+                        else if (mac != null) ctx.Store.Observe(mac, "ARP", a, ip);
                         var n = Interlocked.Increment(ref done);
                         if (n % 16 == 0) ctx.Status.Report($"Windows ARP sweep (pass {pass}): {n}/{total}");
                     }
@@ -52,5 +60,24 @@ public sealed class WindowsArpSweep : IActiveScanner
                 ct.ThrowIfCancellationRequested();
             }
         }
+        if (unsure.IsEmpty) return;
+
+        // Make Windows check them: a packet to an old entry starts a check (ARP to the device) that ends within ~8 s.
+        ctx.Status.Report($"Checking {unsure.Count} address(es) Windows remembers from before…");
+        var fresh = ArpCache.ReadWithState().Where(e => e.Fresh == true).Select(e => Ip4.ToUInt(e.Ip)).ToHashSet();
+        var check = unsure.Keys.Where(h => !fresh.Contains(h)).ToList();
+        if (check.Count > 0)
+        {
+            await Task.WhenAll(check.Select(async h => { try { using var p = new Ping(); await p.SendPingAsync(Ip4.FromUInt(h), 500); } catch { } }));
+            await Task.Delay(TimeSpan.FromSeconds(9), ct);
+            fresh = ArpCache.ReadWithState().Where(e => e.Fresh == true).Select(e => Ip4.ToUInt(e.Ip)).ToHashSet();
+        }
+        var gone = 0;
+        foreach (var (h, (mac, a)) in unsure)
+        {
+            if (fresh.Contains(h)) ctx.Store.Observe(mac, "ARP", a, Ip4.FromUInt(h));
+            else gone++;
+        }
+        if (gone > 0) ctx.Log($"Windows ARP sweep: {gone} address(es) were only in Windows' memory from before (the devices did not answer now)");
     }
 }

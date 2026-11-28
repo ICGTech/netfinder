@@ -93,6 +93,7 @@ internal static class Theme
         [DeviceTypes.IPhone] = Color.FromArgb(70, 70, 70),
         [DeviceTypes.Mac] = Color.FromArgb(90, 90, 90),
         [DeviceTypes.WindowsPc] = Color.FromArgb(0, 90, 158),
+        [DeviceTypes.WindowsServer] = Color.FromArgb(0, 70, 120),
         [DeviceTypes.Linux] = Color.FromArgb(200, 140, 0),
         [DeviceTypes.Nas] = Color.FromArgb(73, 130, 5),
         [DeviceTypes.Iot] = Color.FromArgb(0, 128, 128),
@@ -125,6 +126,7 @@ internal static class Theme
         [DeviceTypes.Phone] = "\U0001F4F1",
         [DeviceTypes.Mac] = "\U0001F4BB",          // laptop
         [DeviceTypes.WindowsPc] = "\U0001F5A5",    // desktop computer
+        [DeviceTypes.WindowsServer] = "\U0001F5A7",// three networked computers
         [DeviceTypes.Linux] = "\U0001F427",        // penguin
         [DeviceTypes.Nas] = "\U0001F5C4",          // file cabinet
         [DeviceTypes.Iot] = "\U0001F4A1",          // light bulb

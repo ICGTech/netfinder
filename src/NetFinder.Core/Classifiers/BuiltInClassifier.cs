@@ -80,6 +80,7 @@ public sealed class BuiltInClassifier : IDeviceClassifier
         (@"access point|unifi ap|uap-|eap\d|instant on ap|airos|wap\d", T.AccessPoint, 75),
         (@"routeros|rosssh|mikrotik|openwrt|dd-wrt|fritz!box|router|gateway|igd|internetgatewaydevice|wanipconnection|wancommoninterface|edgeos|vyos|pfsense|opnsense", T.Router, 65),
         (@"fortigate|fortios|pan-os|sonicwall|sophos|watchguard|checkpoint|asa\d", T.Firewall, 80),
+        (@"vmware esxi|\besxi\b|vsphere|vcenter|proxmox|xenserver|xcp-ng|nutanix|hyper-v server", T.Linux, 80),
         (@"idrac|integrated dell remote|integrated lights.?out|\bilo ?\d|xclarity|\bimm2?\b|megarac|supermicro|\bipmi\b|\bbmc\b|openmanage", T.Linux, 85),
         (@"synology|diskstation|dsm|qnap|qts|truenas|freenas|readynas|my ?cloud|unraid", T.Nas, 85),
         (@"macbook|imac|macmini|mac mini|macpro|mac pro|mac studio|mac\d+,\d", T.Mac, 85),
@@ -176,6 +177,11 @@ public sealed class BuiltInClassifier : IDeviceClassifier
             if (ttl == "128") s.Add(T.WindowsPc, 25, "TTL 128");
             else if (ttl == "255") s.Add(T.Switch, 15, "TTL 255");
         }
+
+        // Windows Server: beats what a PC / VM / "server" name scored, but not a clear NAS, camera… (they can run a domain too)
+        var server = ServerSigns.Reasons(d);
+        if (server.Count > 0)
+            s.Add(T.WindowsServer, new[] { T.WindowsPc, T.Vm, T.Linux, T.Unknown }.Max(s.Get) + 60, string.Join(", ", server));
     }
 
     private static void Match((Regex Rx, string Type, int Pts)[] rules, string? text, TypeScores s, string label)

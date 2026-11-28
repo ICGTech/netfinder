@@ -23,9 +23,10 @@ public static class PortRisk
 
     public static string Service(int p) => p switch
     {
-        21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS", 80 => "HTTP", 81 or 82 or 88 => "HTTP", 110 => "POP3", 135 => "Windows RPC",
+        21 => "FTP", 22 => "SSH", 23 => "Telnet", 25 => "SMTP", 53 => "DNS", 80 => "HTTP", 81 or 82 => "HTTP", 88 => "Kerberos / web", 110 => "POP3", 135 => "Windows RPC",
         139 => "NetBIOS", 143 => "IMAP", 161 => "SNMP", 443 => "HTTPS", 445 => "SMB (file sharing)", 502 => "Modbus", 512 => "rexec", 513 => "rlogin",
         514 => "rsh", 515 => "LPD printer", 554 => "RTSP (video)", 631 => "IPP printer", 1433 => "SQL Server", 1723 => "PPTP VPN", 1883 => "MQTT",
+        389 => "LDAP (domain)", 636 => "LDAP (TLS)", 3268 or 3269 => "Global catalog", 2179 => "Hyper-V",
         1900 => "UPnP", 2375 => "Docker API", 3000 => "Web", 3306 => "MySQL", 3389 => "Remote Desktop", 5000 or 5001 => "Web / NAS", 5060 => "SIP",
         5432 => "PostgreSQL", 5800 => "VNC (web)", 5900 => "VNC", 5985 => "WinRM", 6379 => "Redis", 7547 => "TR-069", 8000 or 8001 => "Web",
         8008 or 8009 => "Cast", 8080 or 8081 or 8088 or 8888 or 8899 => "HTTP alt", 8291 => "Winbox", 8443 => "HTTPS alt", 8728 => "MikroTik API",

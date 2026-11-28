@@ -14,6 +14,7 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
         if (!f.IsUdp || f.SrcIp == null) return;
         var p = f.UdpPayload;
         string? name = null, group = null;
+        var dc = false;
         if (f.SrcPort == 137 && f.DstPort == 137 && p.Length >= 12 + 34)
         {
             var flags = p[2] << 8 | p[3];
@@ -22,7 +23,7 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
             if (isResponse && p.Length >= 12 + 34 + 2 && (p[46] << 8 | p[47]) == 0x21)
             {
                 // node status answer (to the "*" query): the list of the PC's names
-                name = ParseNodeStatus(p.ToArray(), out group);
+                name = ParseNodeStatus(p.ToArray(), out group, out dc);
             }
             else if (opcode is 5 or 8 or 9 || isResponse)
             {
@@ -30,6 +31,8 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
                 name = DecodeName(p.Slice(12), out var suffix);
                 var flagsAt = isResponse ? 56 : p.Length > 50 && p[50] == 0xC0 ? 62 : -1;
                 var isGroup = flagsAt > 0 && p.Length > flagsAt && (p[flagsAt] & 0x80) != 0;
+                // DOMAIN<1C> is registered by every domain controller, DOMAIN<1B> by the main one
+                if ((isGroup && suffix == 0x1C) || (!isGroup && suffix == 0x1B)) dc = true;
                 if (isGroup) { if (suffix == 0) group = name; name = null; }
                 else if (suffix is not (0x00 or 0x20)) name = null;
             }
@@ -41,7 +44,7 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
             if (suffix is not (0x00 or 0x20)) name = null;
         }
         if (name == "*" || name?.Contains("__MSBROWSE__") == true) name = null;
-        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(group))
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(group) && !dc)
         {
             // still a live device, even when the packet names something else (a domain role, "*"…)
             if (f.SrcPort == 137 || f.SrcPort == 138) ctx.Store.Observe(f.SrcMac, "NetBIOS", ctx.Adapter, f.SrcIp);
@@ -57,15 +60,22 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
                     d.Hostname = name;
             }
             if (!string.IsNullOrWhiteSpace(group)) d.Info["Workgroup / domain"] = group;
+            if (dc) d.Info["Domain role"] = DomainController;
         });
     }
+
+    public const string DomainController = "Domain controller";
 
     /// <summary>
     /// Names in a NetBIOS node status answer: the PC's own name (unique &lt;00&gt; or &lt;20&gt;) and its workgroup / domain (group &lt;00&gt;).
     /// </summary>
-    public static string? ParseNodeStatus(byte[] b, out string? group)
+    public static string? ParseNodeStatus(byte[] b, out string? group) => ParseNodeStatus(b, out group, out _);
+
+    /// <param name="domainController">The list has DOMAIN&lt;1C&gt; (domain controllers) or DOMAIN&lt;1B&gt; (the main domain controller).</param>
+    public static string? ParseNodeStatus(byte[] b, out string? group, out bool domainController)
     {
         group = null;
+        domainController = false;
         // header 12, name 34, type/class 4, ttl 4, rdlength 2, then count
         var off = 12 + 34 + 4 + 4 + 2;
         if (b.Length <= off) return null;
@@ -80,6 +90,7 @@ public sealed class NetbiosAnalyzer : IPacketAnalyzer
             if (suffix == 0 && !isGroup) name ??= n;
             if (suffix == 0x20 && !isGroup) server ??= n;
             if (suffix == 0 && isGroup) group ??= n;
+            if ((suffix == 0x1C && isGroup) || (suffix == 0x1B && !isGroup)) domainController = true;
         }
         return name ?? server;
     }

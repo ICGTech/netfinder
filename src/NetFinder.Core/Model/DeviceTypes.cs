@@ -16,6 +16,7 @@ public static class DeviceTypes
     public const string IPhone = "iPhone / iPad";
     public const string Mac = "Mac";
     public const string WindowsPc = "Windows PC";
+    public const string WindowsServer = "Windows Server";
     public const string Linux = "Linux / Server";
     public const string Nas = "NAS / Storage";
     public const string Iot = "Smart home / IoT";
@@ -29,6 +30,6 @@ public static class DeviceTypes
     public static readonly string[] All =
     {
         Router, Switch, AccessPoint, Firewall, Printer, Camera, Nvr, Tv, Android, IPhone, Mac, WindowsPc,
-        Linux, Nas, Iot, VoipPhone, Console, Vm, Phone, Ups, AccessControl, Unknown,
+        WindowsServer, Linux, Nas, Iot, VoipPhone, Console, Vm, Phone, Ups, AccessControl, Unknown,
     };
 }
