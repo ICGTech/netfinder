@@ -204,26 +204,32 @@ public static class SnmpTables
         // MAC → (bridge port, VLAN), and bridge port → ifIndex
         var learned = new List<(string Mac, int Port, int Vlan, string Context)>();
         var bpIf = new Dictionary<(string, int), int>();
-        async Task ReadBridge(string com, string context)
+        // false when the device did not answer at all (a Cisco VLAN that has no bridge table, a wrong community)
+        async Task<bool> ReadBridge(string com, string context)
         {
-            foreach (var v in await Snmp.WalkAsync(ip, com, BasePortIfIndex, Timeout, ct, version, maxRows: 2000) ?? new())
+            var bps = await Snmp.WalkAsync(ip, com, BasePortIfIndex, Timeout, ct, version, maxRows: 2000);
+            if (bps == null) return false;
+            foreach (var v in bps)
                 if (Snmp.Index(v.Oid, BasePortIfIndex) is [var bp] && v.Number is { } ifx) bpIf[(context, bp)] = (int)ifx;
             var q = await Snmp.WalkAsync(ip, com, QFdbPort, Timeout, ct, version, maxRows: 20_000) ?? new();
             foreach (var v in q)
                 if (Snmp.Index(v.Oid, QFdbPort) is { Length: 7 } i && v.Number is > 0 and var port)
                     learned.Add((MacOf(i[1..]), (int)port, i[0], context));
-            if (q.Count > 0) return;
+            if (q.Count > 0) return true;
             foreach (var v in await Snmp.WalkAsync(ip, com, FdbPort, Timeout, ct, version, maxRows: 20_000) ?? new())
                 if (Snmp.Index(v.Oid, FdbPort) is { Length: 6 } i && v.Number is > 0 and var port)
                     learned.Add((MacOf(i), (int)port, context.Length > 0 ? int.Parse(context) : 0, context));
+            return true;
         }
         await ReadBridge(community, "");
         // Cisco keeps one bridge table per VLAN, read with "community@VLAN"
         if (maker == "Cisco")
         {
             var vlans = (await Snmp.WalkAsync(ip, community, CiscoVlans, Timeout, ct, version, maxRows: 200) ?? new())
-                .Select(v => Snmp.Index(v.Oid, CiscoVlans)).Where(i => i.Length == 2 && i[1] is > 1 and < 1002 or > 1005 and < 4095).Select(i => i[1]).Distinct().Take(64).ToList();
-            foreach (var vlan in vlans) await ReadBridge($"{community}@{vlan}", vlan.ToString(CultureInfo.InvariantCulture));
+                .Select(v => Snmp.Index(v.Oid, CiscoVlans)).Where(i => i.Length == 2 && i[1] is > 1 and < 1002 or > 1005 and < 4095).Select(i => i[1]).Distinct().Take(48).ToList();
+            var silent = 0;
+            foreach (var vlan in vlans)
+                if (!await ReadBridge($"{community}@{vlan}", vlan.ToString(CultureInfo.InvariantCulture)) && ++silent >= 2) break; // "@VLAN" not supported here
         }
 
         // interfaces

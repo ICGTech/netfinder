@@ -417,6 +417,8 @@ if (args.Length >= 1 && args[0] == "selftest")
             R(sw, $"1.3.6.1.2.1.31.1.1.1.1.{ifx}", FakeSnmpAgent.Str(name)); R(sw, $"1.3.6.1.2.1.31.1.1.1.15.{ifx}", FakeSnmpAgent.Gauge(speed));
             R(sw, $"1.3.6.1.2.1.31.1.1.1.18.{ifx}", FakeSnmpAgent.Str(alias));
         }
+        R(sw, "1.3.6.1.4.1.9.9.46.1.3.1.1.2.1.1", FakeSnmpAgent.Int(1));
+        R(sw, "1.3.6.1.4.1.9.9.46.1.3.1.1.2.1.20", FakeSnmpAgent.Int(1));
         R(sw, "1.3.6.1.2.1.4.22.1.2.100.192.168.5.20", FakeSnmpAgent.Bytes(0xAA, 0, 0, 0, 0, 0x06));
         R(sw, "1.3.6.1.2.1.4.22.1.2.100.192.168.5.255", FakeSnmpAgent.Bytes(0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF));
 
@@ -443,6 +445,10 @@ if (args.Length >= 1 && args[0] == "selftest")
         Check("switch vlans on port 3", st == null ? null : string.Join(",", st.Ports.First(p => p.Name == "3").Vlans), "1,20");
         Check("switch arp", st == null ? null : string.Join(", ", st.Arp.Select(kv => kv.Key + "=" + kv.Value)), "192.168.5.20=AA:00:00:00:00:06");
         Check("switch counts", st == null ? null : $"{st.Up}/{st.Ports.Count} {st.MacCount}", "4/6 7");
+        var before = agentS.Requests;
+        var stc = await NetFinder.Core.Net.SnmpTables.ReadSwitchAsync(swIp, "secret", 1, "Cisco", CancellationToken.None);
+        Check("cisco: per-VLAN tables read too, same ports", stc == null ? null : string.Join(",", stc.Ports.Select(p => $"{p.Name}:{p.Macs.Count}")), "1:1,2:1,3:3,5:0,6:0,Trk1:2");
+        Check("cisco: asked VLAN 20 with community@20", agentS.Requests - before > 12, true);
         var st1 = await NetFinder.Core.Net.SnmpTables.ReadSwitchAsync(swIp, "secret", 0, "HP", CancellationToken.None);
         Check("switch v1 same ports", st1 == null ? null : string.Join(",", st1.Ports.Select(p => $"{p.Name}:{p.Macs.Count}")), "1:1,2:1,3:3,5:0,6:0,Trk1:2");
 
@@ -463,6 +469,24 @@ if (args.Length >= 1 && args[0] == "selftest")
         // the classifier sees the switch and the printer
         var swType = store.ObserveIp(System.Net.IPAddress.Parse("10.9.0.3"), "Ping", null, d => d.Switch = st);
         Check("switch type from SNMP", swType.Type, DeviceTypes.Switch);
+
+        // the whole SNMP step of "Get model", as the app runs it: model + toner for the printer, ports for the switch (2nd community)
+        using (var eng2 = new NetworkEngine(new Settings { SnmpCommunities = "public, secret" }))
+        {
+            var pd = eng2.Store.ObserveIp(prnIp, "Ping", null);
+            var sd = eng2.Store.ObserveIp(swIp, "Ping", null);
+            var pcd = eng2.Store.Observe(A, "ARP", null, System.Net.IPAddress.Parse("10.9.0.45"))!;
+            var ectx = new NetFinder.Core.Plugins.EnrichContext { Engine = eng2, Settings = eng2.Settings };
+            await new NetFinder.Core.Actions.SnmpEnricher().EnrichAsync(pd, ectx, CancellationToken.None);
+            await new NetFinder.Core.Actions.SnmpEnricher().EnrichAsync(sd, ectx, CancellationToken.None);
+            Check("enricher printer", $"{pd.Model} | {pd.Type} | {pd.Info.GetValueOrDefault("Pages printed")} | {pd.Printer?.Supplies.Count}", "SHARP MX-3114N | Printer | 48,213 | 6");
+            Check("enricher switch", $"{sd.Hostname} | {sd.Type} | {sd.Info.GetValueOrDefault("SNMP community")} | {sd.Info.GetValueOrDefault("Switch ports")}", "CORE-SW1 | Switch | secret | 4 of 6 up · 7 MAC addresses learned");
+            Check("enricher: port map right away", pcd.Info.GetValueOrDefault("Switch port"), "CORE-SW1 · port 1");
+            var quiet = eng2.Store.ObserveIp(System.Net.IPAddress.Parse("127.0.0.9"), "Ping", null);
+            var sw0 = System.Diagnostics.Stopwatch.StartNew();
+            await new NetFinder.Core.Actions.SnmpEnricher().EnrichAsync(quiet, ectx, CancellationToken.None);
+            Check("enricher: silent device is tried, not slow", $"{quiet.SnmpTriedAt != null} {quiet.Sources.Contains("SNMP")} {sw0.ElapsedMilliseconds < 4000}", "True False True");
+        }
 
         Check("color from Kyocera code", NetFinder.Core.Net.SnmpTables.ColorFromText("TK-5240K"), "black");
         Check("port name from long ifDescr", NetFinder.Core.Net.SnmpTables.PortName("", "D-Link DES-1210-28 R2.00.006 Port 5", 5), "Port 5");
