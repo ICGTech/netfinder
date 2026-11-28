@@ -10,10 +10,24 @@ internal static class Theme
     private static readonly float K =
         float.TryParse(Environment.GetEnvironmentVariable("NETFINDER_TEXT_SCALE"), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var k) && k is > 0.5f and < 4f ? k : 1f;
 
-    public static readonly Font Base = new("Segoe UI", 9f * K);
-    public static readonly Font Bold = new("Segoe UI Semibold", 9f * K);
-    public static readonly Font Title = new("Segoe UI Semibold", 15f * K);
-    public static readonly Font Small = new("Segoe UI", 8.25f * K);
+    /// <summary>
+    /// Chinese: Microsoft YaHei UI (Segoe UI has no Chinese letters, and Windows' fallback can miss some of them). Every other language: Segoe UI.
+    /// </summary>
+    private static readonly string? Chinese = Current.Code == "zh" ? Installed("Microsoft YaHei UI") : null;
+
+    private static string? Installed(string family)
+    {
+        using var f = new Font(family, 9f);
+        return string.Equals(f.Name, family, StringComparison.OrdinalIgnoreCase) ? family : null;
+    }
+
+    private static Font UiFont(float size, bool semibold) =>
+        Chinese != null ? new Font(Chinese, size, semibold ? FontStyle.Bold : FontStyle.Regular) : new Font(semibold ? "Segoe UI Semibold" : "Segoe UI", size);
+
+    public static readonly Font Base = UiFont(9f * K, false);
+    public static readonly Font Bold = UiFont(9f * K, true);
+    public static readonly Font Title = UiFont(15f * K, true);
+    public static readonly Font Small = UiFont(8.25f * K, false);
 
     public static readonly Color Accent = Color.FromArgb(0, 120, 212);
     public static readonly Color Brand = Color.FromArgb(18, 32, 58);
@@ -46,11 +60,11 @@ internal static class Theme
     public static Color Mix(Color a, Color b, double t) =>
         Color.FromArgb((int)Math.Round(a.R + (b.R - a.R) * t), (int)Math.Round(a.G + (b.G - a.G) * t), (int)Math.Round(a.B + (b.B - a.B) * t));
 
-    public static readonly Font Heading = new("Segoe UI Semibold", 14f * K);
-    public static readonly Font Section = new("Segoe UI Semibold", 7.75f * K);
-    public static readonly Font Big = new("Segoe UI Semibold", 12f * K);
-    public static readonly Font Header = new("Segoe UI", 9.75f * K);
-    public static readonly Font HeaderBold = new("Segoe UI Semibold", 9.75f * K);
+    public static readonly Font Heading = UiFont(14f * K, true);
+    public static readonly Font Section = UiFont(7.75f * K, true);
+    public static readonly Font Big = UiFont(12f * K, true);
+    public static readonly Font Header = UiFont(9.75f * K, false);
+    public static readonly Font HeaderBold = UiFont(9.75f * K, true);
     public static readonly Font Mono = MonoFont(9.75f, FontStyle.Regular);
     public static readonly Font MonoTitle = MonoFont(15f, FontStyle.Bold);
 

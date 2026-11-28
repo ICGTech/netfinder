@@ -883,7 +883,7 @@ public sealed class MainForm : Form
     private async Task LanguageShotsAsync(string dir, Size border)
     {
         var lang = Core.Text.L.Current;
-        var notes = new List<string> { $"language {lang.Code} ({lang.EnglishName}), right to left {Core.Text.L.Rtl}, window RightToLeft {RightToLeft}" };
+        var notes = new List<string> { $"language {lang.Code} ({lang.EnglishName}), right to left {Core.Text.L.Rtl}, window RightToLeft {RightToLeft}, font {Theme.Base.Name}" };
         Shot(Path.Combine(dir, "light.png"));
         notes.Add(HeaderCheck());
         Rectangle OnScreen(Control c) => c.RectangleToScreen(c.ClientRectangle);
