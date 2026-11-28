@@ -4,6 +4,9 @@ Short notes per version. The newest version is on top.
 The app shows these after it updates itself, and the Release workflow uses them as the release notes.
 Keep each line short and simple.
 
+## 1.1.17
+- Fixed: right-clicking a device showed "Current cell cannot be set to an invisible cell" instead of the menu.
+
 ## 1.1.16
 - Scan starts with an empty list and shows only the devices that answer now. What was read from a device (model, serial, hardware) comes back when it answers.
 

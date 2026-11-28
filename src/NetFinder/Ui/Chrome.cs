@@ -831,6 +831,15 @@ internal static class Native
     [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)] private static extern int SetWindowTheme(IntPtr hwnd, string? app, string? idList);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>A right-click at this point of the control, sent the way Windows sends it (screenshot self-check).</summary>
+    public static void RightClick(Control c, Point p)
+    {
+        var lp = (IntPtr)((p.Y << 16) | (p.X & 0xFFFF));
+        SendMessage(c.Handle, 0x0204, (IntPtr)2, lp); // WM_RBUTTONDOWN, MK_RBUTTON
+        SendMessage(c.Handle, 0x0205, IntPtr.Zero, lp); // WM_RBUTTONUP
+    }
 
     /// <summary>The window as it is on screen (PW_RENDERFULLCONTENT), or null.</summary>
     public static Bitmap? Capture(Form f)

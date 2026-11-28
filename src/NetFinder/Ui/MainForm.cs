@@ -466,7 +466,11 @@ public sealed class MainForm : Form
         _grid.ContextMenuStrip = BuildContextMenu();
         _grid.CellMouseDown += (_, e) =>
         {
-            if (e.Button == MouseButtons.Right && e.RowIndex >= 0) { _grid.ClearSelection(); _grid.Rows[e.RowIndex].Selected = true; _grid.CurrentCell = _grid.Rows[e.RowIndex].Cells[1]; }
+            if (e.Button != MouseButtons.Right || e.RowIndex < 0) return;
+            var row = _grid.Rows[e.RowIndex];
+            _grid.ClearSelection();
+            row.Selected = true;
+            SetCurrent(row, e.ColumnIndex);
         };
     }
 
@@ -742,6 +746,8 @@ public sealed class MainForm : Form
             await Task.Delay(1200);
             Shot(Path.Combine(dir, "dark-narrow.png"));
             _chkRepeat.Checked = false;
+            // 1.1.17: right-clicks on rows, with the Watch column shown and hidden (it used to fail when hidden)
+            var rc = await RightClickCheckAsync(dir);
             // a new scan in demo mode: the list empties, the devices come back with what was read from them
             if (_engine.Store.Find("10.0.0.43") is { } t43) _engine.Store.Touch(t43, x => x.Info["Serial number"] = "RESTORE-TEST");
             var before = _engine.Store.Count;
@@ -750,10 +756,68 @@ public sealed class MainForm : Form
             await Task.Delay(1500);
             var serial = _engine.Store.Find("10.0.0.43") is { } back ? back.Info.GetValueOrDefault("Serial number") : null;
             File.WriteAllText(Path.Combine(dir, "info.txt"), $"client {ClientSize.Width}x{ClientSize.Height}, dpi {DeviceDpi}, screen {Screen.PrimaryScreen?.Bounds.Size}\r\n" +
-                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}");
+                $"new scan: {before} before, {_engine.Store.Count} in store after, {_rows.Count} rows, serial kept: {serial}, kept aside: {_engine.Store.KeptAside}\r\n" +
+                string.Join("\r\n", rc));
         }
         catch (Exception ex) { try { File.WriteAllText(Path.Combine(dir, "error.txt"), ex.ToString()); } catch { } }
         Close();
+    }
+
+    /// <summary>
+    /// Makes a cell of this row the current one: the clicked column when it is shown, else the IP address.
+    /// Never a hidden cell (the hidden Watch column made every right-click fail in 1.1.15 and 1.1.16).
+    /// </summary>
+    private void SetCurrent(DataGridViewRow row, int column = -1)
+    {
+        if (!row.Visible || row.DataGridView != _grid) return;
+        var col = column >= 0 && column < _grid.Columns.Count && _grid.Columns[column].Visible ? _grid.Columns[column] : _grid.Columns["Ip"];
+        if (col is { Visible: true } && _grid.CurrentCell != row.Cells[col.Index]) _grid.CurrentCell = row.Cells[col.Index];
+    }
+
+    /// <summary>Screenshot self-check: right-clicks rows the way Windows does and writes down what happened.</summary>
+    private async Task<List<string>> RightClickCheckAsync(string dir)
+    {
+        var rc = new List<string>();
+        _nav.Select("all");
+        _tabs.SelectedIndex = 0;
+        await Task.Delay(600);
+        async Task ClickAsync(string ip, string column)
+        {
+            if (!_rows.TryGetValue(ip, out var row) || !row.Visible) { rc.Add($"right-click: {ip} not in the list"); return; }
+            var col = _grid.Columns[column]!;
+            if (!col.Visible) { rc.Add($"right-click: column {column} hidden"); return; }
+            _grid.FirstDisplayedScrollingRowIndex = row.Index;
+            await Task.Delay(200);
+            var r = _grid.GetCellDisplayRectangle(col.Index, row.Index, true);
+            if (r.Width == 0) { _grid.FirstDisplayedScrollingColumnIndex = col.Index; await Task.Delay(200); r = _grid.GetCellDisplayRectangle(col.Index, row.Index, true); }
+            var p = new Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
+            Native.RightClick(_grid, p);
+            await Task.Delay(500);
+            var menu = _grid.ContextMenuStrip!;
+            var opened = menu.Visible;
+            if (!opened) { menu.Show(_grid, p); await Task.Delay(400); }
+            rc.Add($"right-click on {column} of {ip}: selected {SelectedDevice()?.Ip}, current cell {_grid.CurrentCell?.OwningColumn?.Name}, menu {(opened ? "opened" : "shown by hand")}, {menu.Items.Count} items");
+            menu.Close();
+            await Task.Delay(300);
+        }
+        var watchCol = _grid.Columns["Watch"]!;
+        rc.Add($"watch column shown: {watchCol.Visible}");
+        await ClickAsync("10.0.0.43", "Name");
+        await ClickAsync("10.0.0.12", "Watch");
+        _watchList.Clear();
+        ApplyWatchList(log: false);
+        await Task.Delay(500);
+        rc.Add($"nothing watched: watch column shown: {watchCol.Visible}, current cell now {_grid.CurrentCell?.OwningColumn?.Name}");
+        if (_rows.TryGetValue("10.0.0.43", out var r43))
+        {
+            try { _grid.CurrentCell = r43.Cells[1]; rc.Add("old code (cell 1): no error"); }
+            catch (InvalidOperationException ex) { rc.Add($"old code (cell 1): {ex.Message}"); }
+        }
+        await ClickAsync("10.0.0.45", "Type");
+        await ClickAsync("10.0.0.2", "Ip");
+        await ClickAsync("10.0.0.64", "Ports");
+        rc.Add($"ui errors: {(File.Exists(Path.Combine(dir, "ui-errors.txt")) ? "YES, see ui-errors.txt" : "none")}");
+        return rc;
     }
 
     private void SelectIp(string ip)
@@ -761,7 +825,7 @@ public sealed class MainForm : Form
         if (!_rows.TryGetValue(ip, out var row) || !row.Visible) return;
         _grid.ClearSelection();
         row.Selected = true;
-        _grid.CurrentCell = row.Cells["Ip"];
+        SetCurrent(row);
         _grid.FirstDisplayedScrollingColumnIndex = 0;
     }
 
@@ -1210,7 +1274,7 @@ public sealed class MainForm : Form
                 _reselect = null;
                 _grid.ClearSelection();
                 row.Selected = true;
-                _grid.CurrentCell = row.Cells["Ip"];
+                SetCurrent(row);
             }
         }
         if (sortCol != null && sortDir != SortOrder.None)
@@ -2117,7 +2181,9 @@ public sealed class MainForm : Form
             if (log) _engine.Log("Watch: stopped (no devices picked)");
             if (_tray != null) _tray.Visible = false;
         }
-        _grid.Columns["Watch"]!.Visible = _watchList.Count > 0;
+        var watchCol = _grid.Columns["Watch"]!;
+        if (_watchList.Count == 0 && _grid.CurrentCell?.OwningColumn == watchCol) SetCurrent(_grid.CurrentCell.OwningRow!);
+        watchCol.Visible = _watchList.Count > 0;
         foreach (var row in _rows.Values)
             if (row.Tag is Device d) row.Cells["Watch"].Value = WatchText(d.Ip?.ToString());
         UpdateCounters();
@@ -2203,7 +2269,7 @@ public sealed class MainForm : Form
         if (!row.Visible) return;
         _grid.ClearSelection();
         row.Selected = true;
-        _grid.CurrentCell = row.Cells["Ip"];
+        SetCurrent(row);
         _grid.FirstDisplayedScrollingColumnIndex = 0;
     }
 
